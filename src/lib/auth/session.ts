@@ -98,3 +98,8 @@ export async function revokeSessionById(sessionId: string, reason: string) {
     .set({ revokedAt: new Date(), revokeReason: reason })
     .where(and(eq(userSessions.id, sessionId), isNull(userSessions.revokedAt)));
 }
+
+/** Clear a cookie with the same attributes it was set with (required for __Host- cookies). */
+export function clearCookie(res: { cookies: { set: (name: string, value: string, opts: ReturnType<typeof cookieOptions>) => unknown } }, name: string) {
+  res.cookies.set(name, "", cookieOptions(0));
+}

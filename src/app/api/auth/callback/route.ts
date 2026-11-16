@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db/client";
 import { oidcTransactions } from "@/lib/db/schema";
 import { completeLogin } from "@/lib/auth/oidc";
 import { linkIdentity } from "@/lib/auth/link";
-import { createSession, OIDC_TXN_COOKIE, SESSION_COOKIE, cookieOptions, hashToken } from "@/lib/auth/session";
+import { clearCookie, createSession, OIDC_TXN_COOKIE, SESSION_COOKIE, cookieOptions, hashToken } from "@/lib/auth/session";
 import { audit, auditSafe } from "@/lib/audit/log";
 import { clientIp } from "@/lib/authz/principal";
 import { getOidcEnv } from "@/lib/env";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 function fail(req: NextRequest, reason: string) {
   const res = NextResponse.redirect(new URL(`/login?reason=${reason}`, req.url), 302);
-  res.cookies.delete(OIDC_TXN_COOKIE);
+  clearCookie(res, OIDC_TXN_COOKIE);
   return res;
 }
 
@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
     },
   });
   const res = NextResponse.redirect(new URL(txn.returnTo || "/dashboard", req.url), 302);
-  res.cookies.delete(OIDC_TXN_COOKIE);
+  clearCookie(res, OIDC_TXN_COOKIE);
   res.cookies.set(SESSION_COOKIE, session.token, cookieOptions(session.maxAgeSeconds));
   return res;
 }

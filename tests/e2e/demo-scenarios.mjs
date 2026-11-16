@@ -152,6 +152,18 @@ try {
     await admin.goto(`${CAPS}${path}`);
     await shot(admin, name);
   }
+  // Sign-out: CAPS session revoked, then RP-initiated logout at the IdP, back to /login.
+  await admin.goto(`${CAPS}/dashboard`);
+  await admin.getByRole("button", { name: /Sign out/i }).click();
+  for (let i = 0; i < 5 && !admin.url().startsWith(`${CAPS}/login`); i++) {
+    await admin.waitForTimeout(800);
+    const btn = admin.locator('button[type="submit"], button[autofocus]');
+    if (!admin.url().startsWith(CAPS) && (await btn.count())) await btn.first().click().catch(() => {});
+  }
+  check("Sign-out returns to the CAPS login page", admin.url().startsWith(`${CAPS}/login`), admin.url());
+  await admin.goto(`${CAPS}/dashboard`);
+  check("Signed-out session cookie is cleared", admin.url().includes("/login?reason=no_session"), admin.url());
+
   // reactivate for repeatability
   await scim("PATCH", `/Users/${amina}`, { schemas: [PATCH], Operations: [{ op: "replace", path: "active", value: true }] });
   await scim("DELETE", `/Users/${amina}`);

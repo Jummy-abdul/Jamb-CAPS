@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { userSessions } from "@/lib/db/schema";
 import { buildLogoutUrl } from "@/lib/auth/oidc";
-import { SESSION_COOKIE, hashToken, revokeSessionById } from "@/lib/auth/session";
+import { SESSION_COOKIE, clearCookie, hashToken, revokeSessionById } from "@/lib/auth/session";
 import { auditSafe } from "@/lib/audit/log";
 import { clientIp, resolvePrincipalFromToken } from "@/lib/authz/principal";
 
@@ -34,6 +34,6 @@ export async function POST(req: NextRequest) {
     }
   }
   const res = NextResponse.redirect(redirectTo, 303);
-  res.cookies.delete(SESSION_COOKIE);
+  clearCookie(res, SESSION_COOKIE);
   return res;
 }
