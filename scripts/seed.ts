@@ -40,6 +40,9 @@ const rand = () => {
   return seed / 4294967296;
 };
 const pick = <T,>(arr: readonly T[]) => arr[Math.floor(rand() * arr.length)];
+const NOW = Date.now();
+/** Keep fictional history in the past relative to when the seed runs. */
+const past = (d: Date) => new Date(Math.min(d.getTime(), NOW - (1 + Math.floor(rand() * 96)) * 3600_000));
 const int = (min: number, max: number) => Math.floor(rand() * (max - min + 1)) + min;
 
 const INSTITUTIONS = [
@@ -177,7 +180,7 @@ async function main() {
       let left = utme;
       for (let k = 0; k < 4; k++) { split[k] = k === 3 ? left : Math.min(100, Math.max(30, Math.round(utme / 4 + int(-12, 12)))); left -= split[k]; }
       split[3] = Math.min(100, Math.max(20, split[3]));
-      const submitted = new Date(Date.UTC(2026, 6 + int(0, 3), int(1, 28), int(7, 18), int(0, 59)));
+      const submitted = past(new Date(Date.UTC(2026, 6 + int(0, 3), int(1, 28), int(7, 18), int(0, 59))));
 
       const [applicant] = await tx.insert(s.applicants).values({
         registrationNo: `DEMO26${String(104500 + n * 7).padStart(7, "0")}${String.fromCharCode(65 + (n % 26))}${String.fromCharCode(65 + ((n * 3) % 26))}`,
@@ -198,12 +201,12 @@ async function main() {
         applicationNo: `CAPS/2026/${String(100231 + n * 13).padStart(6, "0")}`,
         applicantId: applicant.id, institutionId: inst.id, programmeId: prog.id,
         academicSession: SESSION, status, postUtmeScore: postUtme, aggregateScore: aggregate,
-        submittedAt: submitted, updatedAt: new Date(submitted.getTime() + int(2, 30) * 86400000),
+        submittedAt: submitted, updatedAt: past(new Date(submitted.getTime() + int(2, 30) * 86400000)),
       }).returning();
 
       if (status !== "submitted") {
         const officer = pick(officers);
-        const reviewedAt = new Date(submitted.getTime() + int(3, 20) * 86400000);
+        const reviewedAt = past(new Date(submitted.getTime() + int(3, 20) * 86400000));
         await tx.insert(s.admissionReviews).values({
           applicationId: app.id, reviewerId: officer.id, reviewerName: officer.displayName!,
           recommendation: status === "under_review" ? null : utme >= prog.cutoffMark ? "recommend_admission" : status === "on_hold" ? "requires_further_review" : "recommend_rejection",
@@ -215,7 +218,7 @@ async function main() {
             decision: status === "admitted" ? "approved" : status === "rejected" ? "rejected" : "on_hold",
             decidedById: manager.id, decidedByName: manager.displayName!,
             reason: status === "admitted" ? "Meets programme requirements and quota." : status === "rejected" ? "Does not meet departmental cut-off." : "Pending O'Level verification.",
-            isSample: true, createdAt: new Date(reviewedAt.getTime() + int(1, 10) * 86400000),
+            isSample: true, createdAt: past(new Date(reviewedAt.getTime() + int(1, 10) * 86400000)),
           });
         }
       }

@@ -18,12 +18,12 @@ export const PAGE_SIZE = 20;
 const effectiveRolesSql = sql<string[]>`coalesce((
   select array_agg(distinct r.name order by r.name)
   from user_entitlements e join application_roles r on r.key = e.role_key
-  where e.user_id = ${users.id} and e.revoked_at is null), '{}')`;
+  where e.user_id = "users"."id" and e.revoked_at is null), '{}')`;
 
 const groupNamesSql = sql<string[]>`coalesce((
   select array_agg(g.display_name order by g.display_name)
   from group_memberships m join groups g on g.id = m.group_id and g.deleted_at is null
-  where m.user_id = ${users.id}), '{}')`;
+  where m.user_id = "users"."id"), '{}')`;
 
 export async function listUsers(opts: { q?: string; source?: string; status?: string; page: number }) {
   const db = getDb();
@@ -36,6 +36,7 @@ export async function listUsers(opts: { q?: string; source?: string; status?: st
   if (opts.status === "active") where.push(and(eq(users.active, true), isNull(users.deletedAt))!);
   if (opts.status === "inactive") where.push(and(eq(users.active, false), isNull(users.deletedAt))!);
   if (opts.status === "deprovisioned") where.push(isNotNull(users.deletedAt));
+  else if (!opts.status) where.push(isNull(users.deletedAt)); // deprovisioned accounts are kept for audit but hidden by default
   const cond = where.length ? and(...where) : undefined;
   const rows = await db
     .select({
@@ -84,12 +85,12 @@ export async function getUserDetail(id: string) {
   return { user, memberships, entitlements, sessions };
 }
 
-const memberCountSql = sql<number>`(select count(*)::int from group_memberships m where m.group_id = ${groups.id})`;
+const memberCountSql = sql<number>`(select count(*)::int from group_memberships m where m.group_id = "groups"."id")`;
 const mappedRolesSql = sql<string[]>`coalesce((
   select array_agg(distinct r.name order by r.name) from role_mappings rm join application_roles r on r.key = rm.role_key
   where rm.enabled and (
-    (rm.source_type = 'group_display_name' and lower(rm.source_value) = lower(${groups.displayName}))
-    or (rm.source_type = 'group_external_id' and rm.source_value = ${groups.externalId}))), '{}')`;
+    (rm.source_type = 'group_display_name' and lower(rm.source_value) = lower("groups"."display_name"))
+    or (rm.source_type = 'group_external_id' and rm.source_value = "groups"."external_id"))), '{}')`;
 
 export async function listGroups(opts: { q?: string; includeDeleted?: boolean }) {
   const db = getDb();
@@ -128,15 +129,15 @@ export async function getGroupDetail(id: string) {
 export async function getRolesAndMappings() {
   const db = getDb();
   const roles = await db.select().from(applicationRoles).orderBy(applicationRoles.sortOrder);
-  const perms = await db.select().from(permissions).orderBy(permissions.category, permissions.key);
+  const perms = await db.select().from(permissions).orderBy(sql`case ${permissions.category} when 'General' then 0 when 'Admissions' then 1 else 2 end`, permissions.key);
   const rp = await db.select().from(rolePermissions);
   const mappings = await db
     .select({
       m: roleMappings,
       roleName: applicationRoles.name,
       matchedGroups: sql<number>`(select count(*)::int from groups g where g.deleted_at is null and (
-        (${roleMappings.sourceType} = 'group_display_name' and lower(g.display_name) = lower(${roleMappings.sourceValue}))
-        or (${roleMappings.sourceType} = 'group_external_id' and g.external_id = ${roleMappings.sourceValue})))`,
+        ("role_mappings"."source_type" = 'group_display_name' and lower(g.display_name) = lower("role_mappings"."source_value"))
+        or ("role_mappings"."source_type" = 'group_external_id' and g.external_id = "role_mappings"."source_value")))`,
     })
     .from(roleMappings)
     .innerJoin(applicationRoles, eq(applicationRoles.key, roleMappings.roleKey))

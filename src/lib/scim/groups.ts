@@ -89,11 +89,11 @@ const GROUP_ATTRS: AttrMap = {
   "meta.lastmodified": { kind: "date", column: groups.updatedAt },
   "members.value": {
     kind: "custom",
-    build: (op, value) => sql`exists (select 1 from group_memberships gm where gm.group_id = ${groups.id} and ${stringCompare(sql`gm.user_id`, op, value)})`,
+    build: (op, value) => sql`exists (select 1 from group_memberships gm where gm.group_id = "groups"."id" and ${stringCompare(sql`gm.user_id`, op, value)})`,
   },
   members: {
     kind: "custom",
-    build: (op, value) => sql`exists (select 1 from group_memberships gm where gm.group_id = ${groups.id} and ${stringCompare(sql`gm.user_id`, op, value)})`,
+    build: (op, value) => sql`exists (select 1 from group_memberships gm where gm.group_id = "groups"."id" and ${stringCompare(sql`gm.user_id`, op, value)})`,
   },
 };
 

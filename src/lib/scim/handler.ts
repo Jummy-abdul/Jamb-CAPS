@@ -119,7 +119,7 @@ async function writeLog(e: {
     await getDb().insert(scimSyncLogs).values({
       method: e.req.method,
       path: e.url.pathname,
-      query: e.url.search ? decodeURIComponent(e.url.search.slice(1)).slice(0, 1000) : null,
+      query: e.url.search ? safeDecode(e.url.search.slice(1)).slice(0, 1000) : null,
       resourceType: e.resourceType,
       resourceId: e.resourceId,
       operation: e.operation,
@@ -169,4 +169,12 @@ export function project(resource: Record<string, unknown>, url: URL): Record<str
     return Object.fromEntries(Object.entries(resource).filter(([k]) => always.has(k) || !drop.has(k.toLowerCase())));
   }
   return resource;
+}
+
+function safeDecode(q: string) {
+  try {
+    return decodeURIComponent(q.replace(/\+/g, " "));
+  } catch {
+    return q;
+  }
 }

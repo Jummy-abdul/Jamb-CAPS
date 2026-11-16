@@ -41,7 +41,7 @@ export default async function ScimLogsPage({ searchParams }: PageProps<"/scim-lo
                 {rows.map((l) => (
                   <Tr key={l.id}>
                     <Td className="whitespace-nowrap text-xs text-muted">{formatDateTime(l.occurredAt)}</Td>
-                    <Td className="font-mono text-xs"><b>{l.method}</b> {l.path}{l.query ? `?${l.query}` : ""}</Td>
+                    <Td className="max-w-[340px] break-all font-mono text-xs"><b>{l.method}</b> {l.path}{l.query ? <span className="text-muted">?{l.query}</span> : null}</Td>
                     <Td><Badge tone="navy">{l.operation}</Badge></Td>
                     <Td><HttpStatusBadge code={l.statusCode} /></Td>
                     <Td className="max-w-[320px]"><p className="text-sm">{l.summary}</p>{l.errorDetail && <p className="text-xs text-rose-700">{l.errorDetail}</p>}</Td>

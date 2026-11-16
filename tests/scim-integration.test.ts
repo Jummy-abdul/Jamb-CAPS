@@ -190,7 +190,7 @@ describe("SCIM 2.0 service provider (integration)", () => {
     expect(d.status).toBe(200);
     expect(d.body.active).toBe(false);
     p = await resolvePrincipalFromToken(token);
-    expect(p).toEqual({ ok: false, reason: "session_revoked" });
+    expect(p).toEqual({ ok: false, reason: "account_inactive" });
     const actions = (await query("select action from audit_logs where target_id = $1", [amaka.id])).map((a) => a.action);
     expect(actions).toEqual(expect.arrayContaining(["user.deactivated", "session.revoked"]));
   });
@@ -235,5 +235,25 @@ describe("SCIM 2.0 service provider (integration)", () => {
   it("logs every SCIM request, including rejected ones", async () => {
     const [{ n }] = await query("select count(*)::int as n from scim_sync_logs where status_code = 401");
     expect(n).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("Directory and access views reflect Fixiam-derived roles", () => {
+  it("lists effective roles and group names per user (regression: correlated subqueries)", async () => {
+    await resetDb();
+    const { listUsers, listGroups } = await import("@/lib/data/identity");
+    const u = await call(UsersRoute.POST, "POST", "/scim/v2/Users", newUser("dayo"));
+    const g = await call(GroupsRoute.POST, "POST", "/scim/v2/Groups", { schemas: ["urn:ietf:params:scim:schemas:core:2.0:Group"], displayName: "CAPS System Administrators", members: [{ value: u.body.id }] });
+    expect(g.status).toBe(201);
+    const { rows } = await listUsers({ page: 1 });
+    const row = rows.find((r) => r.id === u.body.id)!;
+    expect(row.roles).toEqual(["System Administrator"]);
+    expect(row.groups).toEqual(["CAPS System Administrators"]);
+    const groupsList = await listGroups({});
+    expect(groupsList[0]).toMatchObject({ memberCount: 1, mappedRoles: ["System Administrator"] });
+    // Deprovisioned users are hidden by default but available via the filter.
+    await call(UserRoute.DELETE, "DELETE", `/scim/v2/Users/${u.body.id}`);
+    expect((await listUsers({ page: 1 })).rows.find((r) => r.id === u.body.id)).toBeUndefined();
+    expect((await listUsers({ page: 1, status: "deprovisioned" })).rows.find((r) => r.id === u.body.id)).toBeDefined();
   });
 });

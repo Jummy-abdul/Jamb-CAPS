@@ -150,7 +150,7 @@ const USER_ATTRS: AttrMap = {
   "groups.value": {
     kind: "custom",
     build: (op, value) =>
-      sql`exists (select 1 from group_memberships gm where gm.user_id = ${users.id} and ${stringCompare(sql`gm.group_id`, op, value)})`,
+      sql`exists (select 1 from group_memberships gm where gm.user_id = "users"."id" and ${stringCompare(sql`gm.group_id`, op, value)})`,
   },
 };
 

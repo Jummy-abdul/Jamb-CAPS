@@ -66,7 +66,12 @@ export async function resolvePrincipalFromToken(token: string | undefined | null
 
   const { session, user } = row;
   const now = Date.now();
-  if (session.revokedAt) return { ok: false, reason: "session_revoked" };
+  if (session.revokedAt) {
+    // Tell the user *why* the session ended when Fixiam withdrew access.
+    if (session.revokeReason === "user_deactivated") return { ok: false, reason: "account_inactive" };
+    if (session.revokeReason === "user_deprovisioned") return { ok: false, reason: "account_deprovisioned" };
+    return { ok: false, reason: "session_revoked" };
+  }
   if (session.expiresAt.getTime() <= now) return { ok: false, reason: "session_expired" };
   if (session.lastSeenAt.getTime() + env.SESSION_IDLE_TIMEOUT_MINUTES * 60_000 <= now) {
     await db.update(userSessions).set({ revokedAt: new Date(), revokeReason: "idle_timeout" }).where(eq(userSessions.id, session.id));
