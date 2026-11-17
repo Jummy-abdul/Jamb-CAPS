@@ -21,6 +21,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { eq, sql } from "drizzle-orm";
 import * as s from "../src/lib/db/schema";
+import { requireMigrationUrl, sslFor } from "../src/lib/db/connection";
 
 const args = new Set(process.argv.slice(2));
 const RESET = args.has("--reset");
@@ -28,9 +29,9 @@ const NATIVE_GROUPS = !args.has("--no-native-groups");
 const SAMPLE_DOMAIN = "sample.caps-demo.ng";
 const SESSION = "2026/2027";
 
-const url = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
-if (!url) throw new Error("Set MIGRATION_DATABASE_URL or DATABASE_URL");
-const client = postgres(url, { prepare: false, max: 1, onnotice: () => {} });
+// Seeding runs over the Session pooler / direct connection (never the Transaction pooler).
+const url = requireMigrationUrl();
+const client = postgres(url, { prepare: false, max: 1, ssl: sslFor(url), onnotice: () => {} });
 const db = drizzle(client, { schema: s });
 
 // Deterministic PRNG so every environment gets the same demo data.

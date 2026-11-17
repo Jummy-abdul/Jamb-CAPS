@@ -18,7 +18,7 @@ CAPS consumes identities and access assignments from Fixiam:
 | Access lifecycle & revocation | SCIM deactivation / deprovisioning / membership removal → immediate session revalidation |
 | Audit | Every provisioning, group, role, authentication, session, authorization and admission event |
 
-Detailed docs: **[Fixiam integration guide](docs/fixiam-integration.md)** · **[Demonstration runbook](docs/demo-runbook.md)**
+Detailed docs: **[Fixiam integration guide](docs/fixiam-integration.md)** · **[Supabase setup](docs/supabase-setup.md)** · **[Demonstration runbook](docs/demo-runbook.md)**
 
 ---
 
@@ -101,20 +101,21 @@ docs/                     integration guide · demo runbook
 
 ## Database (Supabase)
 
-1. In Supabase create a project named **`jamb-caps-demo`** (choose a region close to the audience,
-   e.g. *West EU*, and save the database password securely).
-2. **Project Settings → Database → Connection string**:
-   * **Transaction pooler** (port `6543`) → `DATABASE_URL` (used by the app at runtime on Vercel).
-   * **Session pooler** (port `5432`) → `MIGRATION_DATABASE_URL` (used for migrations and seeding).
-3. Apply migrations and load fictional data (from a machine with the repo):
-   ```bash
-   npm install
-   MIGRATION_DATABASE_URL="postgresql://…:5432/postgres" npm run db:migrate
-   MIGRATION_DATABASE_URL="postgresql://…:5432/postgres" npm run db:seed
-   ```
-   Migrations create all tables, constraints and indexes, enable RLS on every table (no policies →
-   the `anon`/`authenticated` API roles are denied), make `audit_logs` append-only, and insert the
-   roles, permissions and default group-to-role mappings. The seed is idempotent.
+Full step-by-step guide: **[docs/supabase-setup.md](docs/supabase-setup.md)**.
+
+| Variable | Supabase connection | Used by |
+|---|---|---|
+| `DATABASE_URL` | Transaction pooler (port 6543) | App runtime on Vercel; prepared statements disabled, TLS enforced |
+| `MIGRATION_DATABASE_URL` | Session pooler (port 5432) or direct | `npm run db:migrate`, `db:seed`, `db:check` — on your machine only |
+
+```bash
+npm run db:migrate   # schema, RLS, roles, permissions, default group mappings (idempotent)
+npm run db:seed      # fictional demo data + pre-existing CAPS groups (idempotent)
+npm run db:check     # read-only verification; never prints connection strings
+```
+
+The migration scripts refuse a transaction-pooler URL. Migrations enable RLS on every table (no
+policies → Supabase's `anon`/`authenticated` API roles are denied) and make `audit_logs` append-only.
 
 Tables: `users`, `groups`, `group_memberships`, `application_roles`, `permissions`,
 `role_permissions`, `role_mappings`, `user_entitlements`, `user_sessions`, `oidc_transactions`,
@@ -128,7 +129,7 @@ All server-side only (never `NEXT_PUBLIC_`). See [`.env.example`](.env.example).
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | Supabase transaction-pooler connection string |
-| `MIGRATION_DATABASE_URL` | Supabase session-pooler connection string (migrations/seed only) |
+| `MIGRATION_DATABASE_URL` | Supabase session-pooler connection string (migrations/seed/check, local machine only — not needed in Vercel) |
 | `SESSION_SECRET` | ≥ 32 random chars; keys the HMAC of session tokens (`openssl rand -base64 48`) |
 | `SESSION_MAX_AGE_MINUTES` / `SESSION_IDLE_TIMEOUT_MINUTES` | Defaults 480 / 60 |
 | `FIXIAM_ISSUER_URL` | Fixiam OIDC issuer; discovery is read from it |
@@ -186,8 +187,9 @@ node scripts/dev-idp.mjs   # http://localhost:4400, client caps-local / caps-loc
 | `npm test` | SCIM filter parser and PATCH engine (unit); SCIM Users/Groups lifecycle, uniqueness, filtering, pagination, membership → roles, session revalidation and revocation, deprovisioning (integration, against the Postgres DB in `.env.test`) |
 | `node tests/e2e/demo-scenarios.mjs` | All five demonstration scenarios in a real browser against a running instance (SCIM + OIDC + UI + API enforcement + audit) |
 
-`.env.test` (git-ignored) must point at a disposable database, e.g.
-`DATABASE_URL=postgres://…/caps_test`; migrate it with `npm run db:migrate` using that URL.
+`.env.test` (git-ignored) must point at a disposable local database, e.g.
+`DATABASE_URL=postgres://…@localhost:5432/caps_test`; migrate it with
+`MIGRATION_DATABASE_URL=<same URL> npm run db:migrate`. Tests truncate tables — never point them at Supabase.
 
 ## Security summary
 
