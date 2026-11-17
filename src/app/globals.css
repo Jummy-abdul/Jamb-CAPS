@@ -22,6 +22,19 @@
   --color-muted: #5b6b86;
   --color-line: #e2e8f1;
   --color-accent: #0f8a5f; /* Nigerian green accent, used sparingly */
+
+  /* Green scale (login surface, inspired by the shared admissions-portal layout) */
+  --color-green-50: #eaf6ef;
+  --color-green-100: #cfeadb;
+  --color-green-200: #a3d6ba;
+  --color-green-300: #6cbd92;
+  --color-green-400: #39a06d;
+  --color-green-500: #138a52;
+  --color-green-600: #0a7c3f;
+  --color-green-700: #086a35;
+  --color-green-800: #06552b;
+  --color-green-900: #053f21;
+  --color-gold: #e2a60a; /* accent underline */
 }
 
 html { color-scheme: light; }

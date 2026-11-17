@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { ShieldCheck, Lock, AlertTriangle, Info } from "lucide-react";
+import { Lock, AlertTriangle, Info, ShieldCheck } from "lucide-react";
 import { getPrincipalResult } from "@/lib/authz/principal";
 import { getConfigStatus } from "@/lib/env";
 import { CapsLogo } from "@/components/layout/logo";
-import { DemoBanner } from "@/components/layout/demo-banner";
 import { sp } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -27,70 +26,100 @@ const MESSAGES: Record<string, { tone: "info" | "warn" | "error"; text: string }
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const s = await searchParams;
   const reason = sp(s.reason);
+  // Preserved: already-authenticated users skip the login screen.
   const current = await getPrincipalResult().catch(() => null);
   if (current?.ok && !reason) redirect("/dashboard");
   const oidcReady = getConfigStatus().oidc.configured;
   const msg = reason ? MESSAGES[reason] : undefined;
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <DemoBanner />
-      <div className="grid flex-1 lg:grid-cols-[1.1fr_1fr]">
-        <section className="relative hidden overflow-hidden bg-navy-900 px-12 py-14 text-white lg:flex lg:flex-col lg:justify-between">
-          <div className="absolute -right-24 -top-24 size-96 rounded-full bg-navy-700/40 blur-3xl" aria-hidden />
-          <div className="absolute -bottom-32 -left-16 size-96 rounded-full bg-emerald-700/20 blur-3xl" aria-hidden />
-          <div className="relative flex items-center gap-3">
-            <CapsLogo className="size-11" />
-            <div>
-              <p className="text-xl font-bold tracking-wide">CAPS</p>
-              <p className="text-xs text-navy-300">Central Admission Processing System</p>
-            </div>
-          </div>
-          <div className="relative max-w-lg">
-            <h1 className="text-4xl font-semibold leading-tight">Admissions Administration and Processing Portal</h1>
-            <p className="mt-4 text-navy-200">Review applications, record admission decisions and manage the admission exercise across participating institutions.</p>
-            <ul className="mt-8 space-y-3 text-sm text-navy-100">
-              <li className="flex gap-3"><ShieldCheck className="size-5 shrink-0 text-emerald-400" />Single Sign-On through Fixiam — no separate CAPS password</li>
-              <li className="flex gap-3"><ShieldCheck className="size-5 shrink-0 text-emerald-400" />Accounts provisioned automatically from Fixiam over SCIM 2.0</li>
-              <li className="flex gap-3"><ShieldCheck className="size-5 shrink-0 text-emerald-400" />Roles and permissions governed centrally in Fixiam</li>
-            </ul>
-          </div>
-          <p className="relative text-xs text-navy-400">Demonstration application. All records are fictional. Not an official JAMB system.</p>
-        </section>
+    <div className="flex min-h-screen flex-col bg-green-50">
+      {/* Persistent demonstration disclaimer */}
+      <div className="flex items-center justify-center gap-2 bg-amber-400 px-4 py-1.5 text-center text-xs font-medium text-navy-950">
+        <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+        Demonstration environment — fictional data. Not an official JAMB system. Identity and access are managed by Fixiam.
+      </div>
 
-        <section className="flex items-center justify-center px-6 py-12">
-          <div className="w-full max-w-sm">
-            <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <span className="rounded-lg bg-navy-900 p-1"><CapsLogo className="size-9" /></span>
-              <div><p className="text-lg font-bold text-navy-900">CAPS</p><p className="text-xs text-muted">Central Admission Processing System</p></div>
+      {/* Main surface: faded watermark + centred sign-in card */}
+      <main className="relative flex flex-1 items-center justify-center overflow-hidden px-4 py-10 sm:py-14">
+        {/* Decorative background (CSS only) */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-green-50 via-white to-green-100" aria-hidden />
+        <div className="pointer-events-none absolute -left-24 -top-24 size-96 rounded-full bg-green-200/40 blur-3xl" aria-hidden />
+        <div className="pointer-events-none absolute -bottom-28 -right-10 size-[28rem] rounded-full bg-green-300/25 blur-3xl" aria-hidden />
+        <p
+          aria-hidden
+          className="pointer-events-none absolute right-6 top-1/2 hidden max-w-md -translate-y-1/2 text-right text-5xl font-black uppercase leading-none tracking-tight text-green-700/5 xl:block"
+        >
+          Admissions Processing Portal
+        </p>
+
+        {/* Sign-in card */}
+        <div className="relative w-full max-w-md rounded-2xl border border-green-100 bg-white shadow-[0_10px_40px_-12px_rgba(6,85,43,0.25)]">
+          {/* Crest + wordmark header */}
+          <div className="flex flex-col items-center gap-2 border-b border-line px-8 pb-5 pt-8">
+            <span className="grid size-16 place-items-center rounded-2xl bg-green-700 shadow-sm">
+              <CapsLogo className="size-10" />
+            </span>
+            <div className="text-center">
+              <p className="text-base font-bold tracking-wide text-green-800">CAPS</p>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted">Central Admission Processing System</p>
             </div>
-            <h2 className="text-2xl font-semibold text-ink">Sign in</h2>
-            <p className="mt-1 text-sm text-muted">Use your organisational identity managed by Fixiam.</p>
+          </div>
+
+          <div className="px-8 py-7">
+            <h1 className="text-xl font-semibold text-ink">Login to your account</h1>
+            <span className="mt-2 block h-1 w-12 rounded-full bg-gold" aria-hidden />
+            <p className="mt-3 text-sm text-muted">Use your organisational identity managed by Fixiam.</p>
 
             {msg && (
-              <div className={`mt-6 flex gap-2 rounded-lg border px-3 py-2.5 text-sm ${msg.tone === "error" ? "border-rose-200 bg-rose-50 text-rose-800" : msg.tone === "warn" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-navy-100 bg-navy-50 text-navy-800"}`}>
+              <div
+                role="alert"
+                className={`mt-5 flex gap-2 rounded-lg border px-3 py-2.5 text-sm ${
+                  msg.tone === "error"
+                    ? "border-rose-200 bg-rose-50 text-rose-800"
+                    : msg.tone === "warn"
+                      ? "border-amber-200 bg-amber-50 text-amber-900"
+                      : "border-green-200 bg-green-50 text-green-900"
+                }`}
+              >
                 {msg.tone === "info" ? <Info className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0" />}
                 <span>{msg.text}</span>
               </div>
             )}
 
             {oidcReady ? (
-              <a href="/api/auth/login" className="mt-6 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-navy-800 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy-700 focus:outline-none focus:ring-2 focus:ring-navy-300">
-                <Lock className="size-4" />
+              <a
+                href="/api/auth/login"
+                className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-green-700 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300"
+              >
+                <Lock className="size-4" aria-hidden />
                 Login with Fixiam
               </a>
             ) : (
-              <div className="mt-6 rounded-lg border border-dashed border-line p-4 text-sm text-muted">
+              <div className="mt-6 rounded-lg border border-dashed border-line bg-slate-50 p-4 text-sm text-muted">
                 <p className="font-medium text-ink">Fixiam SSO not configured</p>
                 <p className="mt-1">Set the FIXIAM_* environment variables to enable sign-in.</p>
               </div>
             )}
-            <p className="mt-6 text-xs leading-relaxed text-muted">
-              CAPS has no local passwords. Authentication, account provisioning and role assignment are performed centrally by Fixiam Identity and Access Management.
+
+            <ul className="mt-6 space-y-2 text-xs text-muted">
+              <li className="flex gap-2"><ShieldCheck className="size-4 shrink-0 text-green-600" aria-hidden />Single Sign-On through Fixiam — no separate CAPS password</li>
+              <li className="flex gap-2"><ShieldCheck className="size-4 shrink-0 text-green-600" aria-hidden />Accounts provisioned automatically from Fixiam over SCIM 2.0</li>
+              <li className="flex gap-2"><ShieldCheck className="size-4 shrink-0 text-green-600" aria-hidden />Roles and permissions governed centrally in Fixiam</li>
+            </ul>
+
+            <p className="mt-6 border-t border-line pt-4 text-xs leading-relaxed text-muted">
+              Account or access issues? Contact your Fixiam administrator. CAPS has no local passwords; authentication,
+              provisioning and role assignment are performed centrally by Fixiam Identity and Access Management.
             </p>
           </div>
-        </section>
-      </div>
+        </div>
+      </main>
+
+      {/* Green footer bar (demo attribution — not JAMB) */}
+      <footer className="bg-green-800 px-4 py-3 text-center text-xs font-medium text-green-50">
+        {new Date().getFullYear()} · Central Admission Processing System (CAPS) — demonstration environment. Not an official JAMB system.
+      </footer>
     </div>
   );
 }
