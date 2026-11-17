@@ -32,7 +32,30 @@ Project → **Connect** (top bar) → **Connection string** → type **URI**:
 Replace `[YOUR-PASSWORD]` with the database password. If the password contains special characters
 (`@ : / ? # % &` …), URL-encode them (e.g. `@` → `%40`), or use a password made only of letters and digits.
 
-## 3. Run migrations and seed (from your machine)
+## 3a. Run migrations and seed in the Supabase SQL Editor (no local machine needed)
+
+Use this when you do not have a local clone. The scripts run **inside** your Supabase project, so no
+connection string or password leaves Supabase. They are in [`supabase/sql/`](../supabase/sql):
+
+| Step | File | Changes data? | Expected result |
+|---|---|---|---|
+| 1 | `00_preflight.sql` | No | `public_tables = 0`, `caps_migrations_present = false`, `supabase_api_roles_present = true` |
+| 2 | `01_schema.sql` | Yes (one transaction) | `CAPS schema installed`, 18 tables, 3 roles, 3 role mappings, 2 migrations recorded |
+| 3 | `02_seed.sql` | Yes (one transaction) | `CAPS sample data loaded`, 8 institutions, 120 applicants, 5 sample staff, 3 groups |
+| 4 | `03_verify.sql` | No | `tables_without_rls = 0`, `api_role_grants = 0`, `audit_log_append_only = true` |
+
+For each file: Supabase → project **jamb-caps-demo** → **SQL Editor** → **New query** → paste the whole
+file (open it on GitHub → **Raw** → select all → copy) → **Run**. Supabase may warn that the query
+contains destructive operations (`REVOKE`, `DROP TRIGGER IF EXISTS`); that is expected for `01_schema.sql`.
+
+Safety: `01` and `02` each run in a single transaction and abort without changes if CAPS tables or
+sample data already exist. `01` also records the migrations in `drizzle.__drizzle_migrations`, so a
+later `npm run db:migrate` (from any machine) recognises the database as up to date.
+
+The files are generated, never hand-edited: `npm run db:bundle` (requires a local, migrated and seeded
+source database in `SEED_SOURCE_DATABASE_URL`). Regenerate them whenever a migration is added.
+
+## 3b. Run migrations and seed (from your machine)
 
 Prerequisites: Node.js 20.9+ and a clone of the repository.
 

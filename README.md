@@ -101,7 +101,8 @@ docs/                     integration guide · demo runbook
 
 ## Database (Supabase)
 
-Full step-by-step guide: **[docs/supabase-setup.md](docs/supabase-setup.md)**.
+Full step-by-step guide: **[docs/supabase-setup.md](docs/supabase-setup.md)**. No local machine? Run the
+generated scripts in [`supabase/sql/`](supabase/sql) in the Supabase SQL Editor (preflight → schema → seed → verify).
 
 | Variable | Supabase connection | Used by |
 |---|---|---|
