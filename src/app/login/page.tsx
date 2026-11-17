@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { Lock, AlertTriangle, Info, Mail, KeyRound } from "lucide-react";
 import { getPrincipalResult } from "@/lib/authz/principal";
 import { getConfigStatus } from "@/lib/env";
-import { CapsLogo } from "@/components/layout/logo";
 import { sp } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -33,26 +32,25 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const msg = reason ? MESSAGES[reason] : undefined;
 
   return (
-    <div className="flex min-h-screen flex-col bg-green-50">
+    <div className="flex min-h-screen flex-col bg-slate-50">
       {/* Persistent fictional-demonstration disclaimer */}
       <div className="flex items-center justify-center gap-2 bg-amber-400 px-4 py-1.5 text-center text-xs font-medium text-navy-950">
         <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
         Demonstration environment — fictional data. Not an official JAMB system. Identity and access are managed by Fixiam.
       </div>
 
-      {/* eFacility-style surface: green background with a centred login card */}
+      {/* eFacility-style surface: soft light background with a centred login card */}
       <main className="relative flex flex-1 items-center justify-center overflow-hidden px-4 py-10 sm:py-14">
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-green-700 via-green-800 to-green-900" aria-hidden />
-        <div className="pointer-events-none absolute -left-24 -top-24 size-96 rounded-full bg-green-500/20 blur-3xl" aria-hidden />
-        <div className="pointer-events-none absolute -bottom-28 -right-10 size-[30rem] rounded-full bg-green-400/15 blur-3xl" aria-hidden />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-50 via-white to-green-50" aria-hidden />
+        <div className="pointer-events-none absolute -left-24 -top-24 size-96 rounded-full bg-green-200/30 blur-3xl" aria-hidden />
+        <div className="pointer-events-none absolute -bottom-28 -right-10 size-[30rem] rounded-full bg-green-100/40 blur-3xl" aria-hidden />
 
         {/* Login card */}
-        <div className="relative w-full max-w-md rounded-2xl border border-green-100 bg-white shadow-[0_18px_50px_-18px_rgba(0,0,0,0.45)]">
-          {/* Emblem + product name (demo mark — not the JAMB crest) */}
+        <div className="relative w-full max-w-md rounded-2xl border border-green-100 bg-white shadow-[0_12px_44px_-14px_rgba(6,85,43,0.22)]">
+          {/* JAMB crest (authorised customer demonstration) + product name */}
           <div className="flex flex-col items-center gap-2 border-b border-line px-8 pb-5 pt-8">
-            <span className="grid size-16 place-items-center rounded-2xl bg-green-700 shadow-sm">
-              <CapsLogo className="size-10" />
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/jamb-logo.png" alt="Joint Admissions and Matriculation Board" width={80} height={75} className="h-20 w-auto" />
             <div className="text-center">
               <p className="text-base font-bold tracking-wide text-green-800">eFacility Demo</p>
               <p className="text-[11px] uppercase tracking-[0.18em] text-muted">Admissions &amp; Matriculation</p>
