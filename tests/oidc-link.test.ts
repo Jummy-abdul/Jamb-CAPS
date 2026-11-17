@@ -178,3 +178,104 @@ describe("provider-assured email verification (Fixiam temporary trust)", () => {
     expect(resolveEmailVerification(ident({ sub: "x" }), ASSURED)).toEqual({ verified: false, source: "none" });
   });
 });
+
+describe("demo-only unverified-email exception (tightly scoped)", () => {
+  const ALLOWED = "jumoke+jamb@fixiamlab.com";
+  const DEMO_ISS = "https://jamb.iam.seamfix.com/realms/jamb";
+
+  beforeEach(async () => {
+    await resetDb();
+    process.env.CAPS_DEMO_ALLOW_UNVERIFIED_EMAIL = "true";
+    process.env.CAPS_DEMO_UNVERIFIED_EMAIL_ALLOWLIST = ALLOWED;
+    process.env.CAPS_DEMO_UNVERIFIED_EMAIL_ISSUER = DEMO_ISS;
+  });
+  afterEach(() => {
+    delete process.env.CAPS_DEMO_ALLOW_UNVERIFIED_EMAIL;
+    delete process.env.CAPS_DEMO_UNVERIFIED_EMAIL_ALLOWLIST;
+    delete process.env.CAPS_DEMO_UNVERIFIED_EMAIL_ISSUER;
+  });
+
+  it("1. allowlisted, active, SCIM-provisioned user with email_verified:false links via the exception", async () => {
+    const u = await provision("olajumoke", ALLOWED);
+    const r = await linkIdentity(ident({ sub: "fixiam-olajumoke", email: ALLOWED, emailVerified: false }), null, "email", DEMO_ISS);
+    expect(r).toMatchObject({ ok: true, userId: u.body.id, matchedOn: "email", emailVerificationOverride: true });
+    // Distinct audit event recorded, preserving that the original claim was false and the
+    // true verification source is unchanged (never represented as verified).
+    const [ov] = await query<{ details: Record<string, unknown> }>(
+      "select details from audit_logs where action = 'authentication.demo_email_verification_override' and target_id = $1",
+      [u.body.id],
+    );
+    expect(ov.details).toMatchObject({
+      reason: "demo_email_verification_override",
+      originalEmailVerifiedClaim: false,
+      emailVerified: false,
+      emailVerificationSource: "claim",
+    });
+    // The opaque subject is stored, so subsequent logins match by fixiam_sub and never touch the gate.
+    expect(await subOf(u.body.id)).toBe("fixiam-olajumoke");
+  });
+
+  it("2. same user with email_verified:true links normally (exception not used, no override event)", async () => {
+    const u = await provision("olajumoke", ALLOWED);
+    const r = await linkIdentity(ident({ sub: "fixiam-olajumoke", email: ALLOWED, emailVerified: true }), null, "email", DEMO_ISS);
+    expect(r).toMatchObject({ ok: true, userId: u.body.id, matchedOn: "email" });
+    expect((r as { emailVerificationOverride?: boolean }).emailVerificationOverride).toBeFalsy();
+    expect(await query("select 1 from audit_logs where action = 'authentication.demo_email_verification_override'")).toHaveLength(0);
+  });
+
+  it("3. non-allowlisted user with email_verified:false is rejected", async () => {
+    await provision("bisi", "bisi@demo.example");
+    expect(await linkIdentity(ident({ sub: "s", email: "bisi@demo.example", emailVerified: false }), null, "email", DEMO_ISS))
+      .toEqual({ ok: false, reason: "email_unverified" });
+  });
+
+  it("4. allowlisted email that is NOT SCIM-provisioned is rejected", async () => {
+    // No provisioning: the exception passes the gate but no live SCIM account exists.
+    expect(await linkIdentity(ident({ sub: "s", email: ALLOWED, emailVerified: false }), null, "email", DEMO_ISS))
+      .toEqual({ ok: false, reason: "not_provisioned" });
+  });
+
+  it("5. allowlisted but inactive user is rejected", async () => {
+    const u = await provision("olajumoke", ALLOWED);
+    await query("update users set active = false where id = $1", [u.body.id]);
+    expect(await linkIdentity(ident({ sub: "s", email: ALLOWED, emailVerified: false }), null, "email", DEMO_ISS))
+      .toMatchObject({ ok: false, reason: "account_inactive", userId: u.body.id });
+  });
+
+  it("6. a different validated issuer is rejected", async () => {
+    await provision("olajumoke", ALLOWED);
+    expect(await linkIdentity(ident({ sub: "s", email: ALLOWED, emailVerified: false }), null, "email", "https://not-fixiam.example"))
+      .toEqual({ ok: false, reason: "email_unverified" });
+  });
+
+  it("7. with the exception disabled, normal verification rules apply", async () => {
+    delete process.env.CAPS_DEMO_ALLOW_UNVERIFIED_EMAIL;
+    await provision("olajumoke", ALLOWED);
+    expect(await linkIdentity(ident({ sub: "s", email: ALLOWED, emailVerified: false }), null, "email", DEMO_ISS))
+      .toEqual({ ok: false, reason: "email_unverified" });
+  });
+
+  it("8. duplicate email cannot exist (uniqueness preserved), so the exception never faces an ambiguous match", async () => {
+    await provision("olajumoke", ALLOWED);
+    const dup = await provision("olajumoke2", ALLOWED);
+    expect(dup.status).toBe(409);
+    expect(dup.body.scimType).toBe("uniqueness");
+    expect((await query("select count(*)::int as n from users where lower(email) = lower($1)", [ALLOWED]))[0].n).toBe(1);
+  });
+
+  it("does not widen to a bare domain or wildcard (allowlist parser drops them → inert)", async () => {
+    process.env.CAPS_DEMO_UNVERIFIED_EMAIL_ALLOWLIST = "*, , fixiamlab.com, @fixiamlab.com";
+    await provision("olajumoke", ALLOWED);
+    expect(await linkIdentity(ident({ sub: "s", email: ALLOWED, emailVerified: false }), null, "email", DEMO_ISS))
+      .toEqual({ ok: false, reason: "email_unverified" });
+  });
+
+  it("an explicit email_verified:false is still refused for everyone outside the allowlist, even under provider assurance", async () => {
+    // The exception must not become a global policy: a different allowlisted-issuer user is still denied.
+    process.env.CAPS_OIDC_ASSUME_EMAIL_VERIFIED_ISSUER = DEMO_ISS;
+    await provision("chidi", "chidi@demo.example");
+    expect(await linkIdentity(ident({ sub: "s", email: "chidi@demo.example", emailVerified: false }), null, "email", DEMO_ISS))
+      .toEqual({ ok: false, reason: "email_unverified" });
+    delete process.env.CAPS_OIDC_ASSUME_EMAIL_VERIFIED_ISSUER;
+  });
+});

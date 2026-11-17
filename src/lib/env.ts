@@ -101,6 +101,42 @@ export function getOidcAssuredEmailIssuer(): string | undefined {
   return v ? v : undefined;
 }
 
+/**
+ * TEMPORARY, DEMO-ONLY exception to the verified-email gate.
+ *
+ * Purpose: let a small, explicitly named set of SCIM-provisioned demo users complete
+ * account linking even though Fixiam currently sends `email_verified: false`. It is NOT a
+ * general verification policy: it is consulted only at the email-match gate in linkIdentity,
+ * never changes the `email_verified` claim, and never represents an email as verified.
+ *
+ * Safety properties (all must hold for the exception to apply — otherwise it is inert):
+ *   - Disabled unless CAPS_DEMO_ALLOW_UNVERIFIED_EMAIL is exactly "true" (default: off).
+ *   - CAPS_DEMO_UNVERIFIED_EMAIL_ALLOWLIST is an explicit list of full email addresses.
+ *     Blank entries, wildcards ("*") and anything that is not a local-part@domain.tld are
+ *     dropped, so a bare domain or "@domain" can never widen it. Empty ⇒ inert.
+ *   - CAPS_DEMO_UNVERIFIED_EMAIL_ISSUER must be set and is later required to exactly equal the
+ *     cryptographically validated token issuer.
+ *
+ * Removal: delete these three environment variables (or set the flag to anything but "true").
+ * No code path references them elsewhere, so removal fully retires the exception.
+ */
+export interface DemoEmailOverride {
+  enabled: boolean;
+  allowlist: Set<string>;
+  issuer: string | undefined;
+}
+export function getDemoEmailOverride(): DemoEmailOverride {
+  const enabled = process.env.CAPS_DEMO_ALLOW_UNVERIFIED_EMAIL?.trim().toLowerCase() === "true";
+  const allowlist = new Set(
+    (process.env.CAPS_DEMO_UNVERIFIED_EMAIL_ALLOWLIST ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.length > 0 && !e.includes("*") && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)),
+  );
+  const issuer = process.env.CAPS_DEMO_UNVERIFIED_EMAIL_ISSUER?.trim() || undefined;
+  return { enabled, allowlist, issuer };
+}
+
 export function getOidcEnv(): OidcEnv {
   return parse("Fixiam OIDC", oidcSchema, {
     FIXIAM_ISSUER_URL: process.env.FIXIAM_ISSUER_URL,

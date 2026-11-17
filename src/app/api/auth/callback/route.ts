@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
     targetType: "user", targetId: link.userId, targetLabel: link.label,
     details: {
       method: "Fixiam OIDC (authorization code + PKCE)", matchedOn: link.matchedOn, firstSignIn: link.linkedNow, claimsReceived: identity.claimNames,
-      emailVerificationSource: emailSource, groupsClaim: identity.groups ?? null, roleClaim: identity.role ?? null,
+      emailVerificationSource: emailSource, demoEmailOverride: link.emailVerificationOverride ?? false, groupsClaim: identity.groups ?? null, roleClaim: identity.role ?? null,
       note: "CAPS roles are derived from Fixiam group membership synchronised over SCIM",
     },
   });
