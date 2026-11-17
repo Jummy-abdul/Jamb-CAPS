@@ -99,6 +99,11 @@ export const users = pgTable(
     uniqueIndex("users_external_id_live_uq").on(t.externalId).where(sql`${t.deletedAt} is null and ${t.externalId} is not null`),
     uniqueIndex("users_fixiam_sub_live_uq").on(t.fixiamSub).where(sql`${t.deletedAt} is null and ${t.fixiamSub} is not null`),
     index("users_email_idx").on(sql`lower(${t.email})`),
+    // Email uniqueness among live, Fixiam-provisioned users. Required for reliable
+    // email-based OIDC matching; an email resolves to at most one account.
+    uniqueIndex("users_email_scim_live_uq")
+      .on(sql`lower(${t.email})`)
+      .where(sql`${t.deletedAt} is null and ${t.email} is not null and ${t.provisioningSource} = 'scim'`),
     index("users_source_idx").on(t.provisioningSource),
   ],
 );

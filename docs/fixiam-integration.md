@@ -51,6 +51,33 @@ Fixiam discovery document** in CAPS to see what Fixiam advertises.
 > or make the SCIM `userName` equal to the user's email / preferred_username. Either guarantees
 > a deterministic link between the provisioned account and the SSO identity.
 
+### Account matching strategy (`CAPS_OIDC_MATCH_STRATEGY`)
+
+CAPS links a Fixiam sign-in to the SCIM-provisioned account using one of two strategies:
+
+| Value | Behaviour | When to use |
+|---|---|---|
+| `subject` (default, target) | Match the immutable Fixiam subject: SCIM `externalId == sub`, then `userName` (`preferred_username`/verified email), then verified email. | Once Fixiam exposes an immutable user ID. |
+| `email` (**temporary demo**) | Match primarily on the **verified** OIDC `email` claim. | While Fixiam's subject is configured to be the user's email and no immutable ID is available yet. |
+
+**Current demo:** Fixiam's subject is the user's **email**, so set `CAPS_OIDC_MATCH_STRATEGY=email` in Vercel
+(Preview, branch `claude/exciting-davinci-lgnz0w`). Guarantees CAPS relies on:
+
+1. **Case-insensitive email matching** — the OIDC `email` claim is compared to the SCIM user's email with
+   `lower(email) = lower(claim)`.
+2. **Email uniqueness** — a partial unique index (`users_email_scim_live_uq`) and a SCIM-layer `409 uniqueness`
+   check ensure an email resolves to **exactly one** live provisioned account. Apply
+   [`supabase/sql/04_email_uniqueness.sql`](../supabase/sql/04_email_uniqueness.sql) to an already-provisioned database.
+3. **Verified email only** — CAPS links by email **only** when the `email_verified` claim is `true`. An unverified
+   or absent `email_verified` is denied with `?reason=email_unverified` and audited (`authentication.login_denied`).
+   Fixiam must therefore release `email` and `email_verified: true` (scope `email`).
+4. **No assumption that `sub` is an email** — matching uses the explicit `email` claim; the opaque `sub` is stored
+   as `fixiam_sub` only as a stable key for repeat logins.
+
+**Migration to an immutable ID:** because the `sub` is stored on first sign-in, switching Fixiam to an immutable
+subject later is transparent — CAPS re-links the new subject to the same account by verified email
+(audited as `identity.relinked`), after which you can set `CAPS_OIDC_MATCH_STRATEGY=subject`. No data migration needed.
+
 ---
 
 ## 2. Outbound user provisioning (SCIM 2.0)

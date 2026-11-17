@@ -15,6 +15,13 @@
       "when": 1794835751912,
       "tag": "0001_security_and_reference_data",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794920866224,
+      "tag": "0002_email_uniqueness",
+      "breakpoints": true
     }
   ]
 }

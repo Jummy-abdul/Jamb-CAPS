@@ -67,6 +67,21 @@ const oidcSchema = z.object({
   FIXIAM_TOKEN_AUTH_METHOD: z.enum(["client_secret_basic", "client_secret_post"]).default("client_secret_basic"),
 });
 export type OidcEnv = z.infer<typeof oidcSchema>;
+/**
+ * How CAPS links an authenticated Fixiam identity to the SCIM-provisioned account.
+ *   - "subject" (default, recommended): match Fixiam's stable, immutable subject
+ *     (SCIM externalId == OIDC sub), then userName, then verified email.
+ *   - "email": TEMPORARY demo strategy — match primarily on the verified OIDC email
+ *     claim. Use while Fixiam's subject is configured to be the user's email and no
+ *     immutable identifier is yet available. Migrate back to "subject" once Fixiam
+ *     exposes an immutable user ID. Email-based linking always requires email_verified.
+ */
+export type OidcMatchStrategy = "subject" | "email";
+export function getOidcMatchStrategy(): OidcMatchStrategy {
+  const v = (process.env.CAPS_OIDC_MATCH_STRATEGY || "subject").trim().toLowerCase();
+  return v === "email" ? "email" : "subject";
+}
+
 export function getOidcEnv(): OidcEnv {
   return parse("Fixiam OIDC", oidcSchema, {
     FIXIAM_ISSUER_URL: process.env.FIXIAM_ISSUER_URL,

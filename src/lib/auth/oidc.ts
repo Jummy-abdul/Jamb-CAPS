@@ -69,6 +69,8 @@ export async function beginLogin() {
 export interface FixiamIdentity {
   sub: string;
   email?: string;
+  /** OIDC `email_verified` claim: true only when the IdP asserts the email is verified. */
+  emailVerified?: boolean;
   name?: string;
   givenName?: string;
   familyName?: string;
@@ -83,6 +85,18 @@ function asString(v: unknown) {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
+/** Parse an OIDC boolean-ish claim (true | "true" | 1). Anything else (incl. absent) is undefined. */
+function asBool(v: unknown): boolean | undefined {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1 ? true : v === 0 ? false : undefined;
+  if (typeof v === "string") {
+    const t = v.trim().toLowerCase();
+    if (t === "true") return true;
+    if (t === "false") return false;
+  }
+  return undefined;
+}
+
 export function mapClaims(claims: JWTPayload & Record<string, unknown>, userinfo?: Record<string, unknown>): FixiamIdentity {
   const c = { ...(userinfo ?? {}), ...claims } as Record<string, unknown>;
   const groups = Array.isArray(c.groups) ? c.groups.filter((g): g is string => typeof g === "string") : undefined;
@@ -90,6 +104,7 @@ export function mapClaims(claims: JWTPayload & Record<string, unknown>, userinfo
   return {
     sub: String(claims.sub),
     email: asString(c.email),
+    emailVerified: asBool(c.email_verified),
     name: asString(c.name),
     givenName: asString(c.given_name),
     familyName: asString(c.family_name),

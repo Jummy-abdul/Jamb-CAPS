@@ -7,7 +7,7 @@ import { linkIdentity } from "@/lib/auth/link";
 import { clearCookie, createSession, OIDC_TXN_COOKIE, SESSION_COOKIE, cookieOptions, hashToken } from "@/lib/auth/session";
 import { audit, auditSafe } from "@/lib/audit/log";
 import { clientIp } from "@/lib/authz/principal";
-import { getOidcEnv } from "@/lib/env";
+import { getOidcEnv, getOidcMatchStrategy } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -53,15 +53,21 @@ export async function GET(req: NextRequest) {
   const { identity, idToken } = result;
   const who = identity.name || identity.preferredUsername || identity.email || identity.sub;
 
-  // 3. Map to the SCIM-provisioned CAPS account.
-  const link = await linkIdentity(identity, ip);
+  // 3. Map to the SCIM-provisioned CAPS account using the configured strategy.
+  const strategy = getOidcMatchStrategy();
+  const link = await linkIdentity(identity, ip, strategy);
   if (!link.ok) {
     await auditSafe({
       category: "authentication", action: "authentication.login_denied", outcome: "denied", actorType: "fixiam_oidc", actorLabel: who, ipAddress: ip,
       targetType: link.userId ? "user" : null, targetId: link.userId ?? null, targetLabel: link.label ?? who,
-      details: { reason: link.reason, sub: identity.sub, email: identity.email ?? null, preferred_username: identity.preferredUsername ?? null },
+      details: { reason: link.reason, strategy, sub: identity.sub, email: identity.email ?? null, email_verified: identity.emailVerified ?? null, preferred_username: identity.preferredUsername ?? null },
     });
-    return fail(req, link.reason === "account_inactive" ? "account_inactive" : link.reason === "identity_conflict" ? "login_failed" : "not_provisioned");
+    const reasonParam =
+      link.reason === "account_inactive" ? "account_inactive"
+      : link.reason === "email_unverified" ? "email_unverified"
+      : link.reason === "not_provisioned" ? "not_provisioned"
+      : "login_failed"; // identity_conflict, ambiguous_email
+    return fail(req, reasonParam);
   }
 
   // 4. Establish the CAPS session.

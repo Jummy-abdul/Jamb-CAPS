@@ -18,6 +18,7 @@ const MESSAGES: Record<string, { tone: "info" | "warn" | "error"; text: string }
   account_inactive: { tone: "error", text: "Your CAPS access has been deactivated in Fixiam. Contact your administrator." },
   account_deprovisioned: { tone: "error", text: "Your CAPS account has been removed by Fixiam. Contact your administrator." },
   not_provisioned: { tone: "error", text: "You authenticated with Fixiam, but you have not been provisioned to CAPS. Ask your administrator to assign you the CAPS application in Fixiam." },
+  email_unverified: { tone: "error", text: "Your email address has not been verified by Fixiam, so CAPS could not link your account. Verify your email in Fixiam and try again." },
   login_failed: { tone: "error", text: "Sign-in could not be completed. Please try again." },
   access_denied: { tone: "warn", text: "Sign-in was cancelled or denied at Fixiam." },
   not_configured: { tone: "error", text: "Fixiam Single Sign-On is not configured for this deployment yet." },

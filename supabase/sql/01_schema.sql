@@ -420,6 +420,9 @@ INSERT INTO public.role_mappings (source_type, source_value, role_key, descripti
 ON CONFLICT DO NOTHING;
 
 
+-- ---------------------------------------------------------------- migration 0002_email_uniqueness
+CREATE UNIQUE INDEX "users_email_scim_live_uq" ON "users" USING btree (lower("email")) WHERE "users"."deleted_at" is null and "users"."email" is not null and "users"."provisioning_source" = 'scim';
+
 -- ---------------------------------------------------------------- migration bookkeeping (Drizzle)
 create schema if not exists drizzle;
 create table if not exists drizzle.__drizzle_migrations (
@@ -429,7 +432,8 @@ create table if not exists drizzle.__drizzle_migrations (
 );
 insert into drizzle.__drizzle_migrations (hash, created_at) values
   ('ace6007cf97641bcced08656ee8740c27366539d66439e9a405d2c68ba03a014', 1794835744834),
-  ('4a1a06ba615ba3e7d8e30eb55f025c7b1acc83f7e979cc3fc4357b2ca21de861', 1794835751912);
+  ('4a1a06ba615ba3e7d8e30eb55f025c7b1acc83f7e979cc3fc4357b2ca21de861', 1794835751912),
+  ('a0a9578c50c1078e5b638274654adbd3c36d43ddc949c2872d5b318585e20cfb', 1794920866224);
 
 commit;
 

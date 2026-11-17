@@ -206,6 +206,11 @@ async function assertUnique(tx: Tx, input: UserInput, excludeId?: string) {
     const [byExt] = await tx.select({ id: users.id }).from(users).where(conds(eq(users.externalId, input.externalId)));
     if (byExt) throw ScimError.uniqueness(`externalId '${input.externalId}' is already in use`);
   }
+  // Email uniqueness: enforced so email-based OIDC matching resolves to a single account.
+  if (input.email) {
+    const [byEmail] = await tx.select({ id: users.id }).from(users).where(conds(sql`lower(${users.email}) = lower(${input.email})`));
+    if (byEmail) throw ScimError.uniqueness(`email '${input.email}' is already in use`);
+  }
 }
 
 function label(u: { displayName: string | null; userName: string }) {
