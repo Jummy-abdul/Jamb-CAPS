@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { oidcTransactions } from "@/lib/db/schema";
 import { completeLogin } from "@/lib/auth/oidc";
-import { linkIdentity } from "@/lib/auth/link";
+import { linkIdentity, resolveEmailVerification } from "@/lib/auth/link";
 import { clearCookie, createSession, OIDC_TXN_COOKIE, SESSION_COOKIE, cookieOptions, hashToken } from "@/lib/auth/session";
 import { audit, auditSafe } from "@/lib/audit/log";
 import { clientIp } from "@/lib/authz/principal";
@@ -50,17 +51,21 @@ export async function GET(req: NextRequest) {
     await auditSafe({ category: "authentication", action: "authentication.login_failed", outcome: "failure", ...anon, details: { stage: "token_validation", error: e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 300) : "unknown" } });
     return fail(req, "login_failed");
   }
-  const { identity, idToken } = result;
-  const who = identity.name || identity.preferredUsername || identity.email || identity.sub;
+  const { identity, idToken, issuer } = result;
+  // Non-PII correlators for audit: opaque subject hash and the email domain only.
+  const subjectHash = createHash("sha256").update(identity.sub).digest("hex").slice(0, 16);
+  const emailDomain = identity.email?.includes("@") ? identity.email.split("@").pop() ?? null : null;
+  const emailSource = resolveEmailVerification(identity, issuer).source;
 
   // 3. Map to the SCIM-provisioned CAPS account using the configured strategy.
   const strategy = getOidcMatchStrategy();
-  const link = await linkIdentity(identity, ip, strategy);
+  const link = await linkIdentity(identity, ip, strategy, issuer);
   if (!link.ok) {
+    // PII minimisation: never log the raw email (or a sub that may equal the email) on a denial.
     await auditSafe({
-      category: "authentication", action: "authentication.login_denied", outcome: "denied", actorType: "fixiam_oidc", actorLabel: who, ipAddress: ip,
-      targetType: link.userId ? "user" : null, targetId: link.userId ?? null, targetLabel: link.label ?? who,
-      details: { reason: link.reason, strategy, sub: identity.sub, email: identity.email ?? null, email_verified: identity.emailVerified ?? null, preferred_username: identity.preferredUsername ?? null },
+      category: "authentication", action: "authentication.login_denied", outcome: "denied", actorType: "fixiam_oidc", actorLabel: "Unauthenticated Fixiam user", ipAddress: ip,
+      targetType: link.userId ? "user" : null, targetId: link.userId ?? null, targetLabel: null,
+      details: { reason: link.reason, strategy, emailPresent: !!identity.email, emailDomain, email_verified: identity.emailVerified ?? null, emailVerificationSource: emailSource, subjectHash },
     });
     const reasonParam =
       link.reason === "account_inactive" ? "account_inactive"
@@ -77,7 +82,7 @@ export async function GET(req: NextRequest) {
     targetType: "user", targetId: link.userId, targetLabel: link.label,
     details: {
       method: "Fixiam OIDC (authorization code + PKCE)", matchedOn: link.matchedOn, firstSignIn: link.linkedNow, claimsReceived: identity.claimNames,
-      groupsClaim: identity.groups ?? null, roleClaim: identity.role ?? null,
+      emailVerificationSource: emailSource, groupsClaim: identity.groups ?? null, roleClaim: identity.role ?? null,
       note: "CAPS roles are derived from Fixiam group membership synchronised over SCIM",
     },
   });

@@ -3,10 +3,37 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { audit } from "@/lib/audit/log";
-import type { OidcMatchStrategy } from "@/lib/env";
+import { getOidcAssuredEmailIssuer, type OidcMatchStrategy } from "@/lib/env";
 import type { FixiamIdentity } from "./oidc";
 
 export type MatchedOn = "fixiam_sub" | "externalId" | "userName" | "email";
+
+/** How the email was determined to be verified, recorded in the audit log. */
+export type EmailVerificationSource = "claim" | "provider_assurance" | "none";
+
+/**
+ * Decide whether CAPS may treat the identity's email as verified.
+ *
+ *  - `email_verified: true`  → verified (source "claim").
+ *  - `email_verified: false` → NEVER verified, even under provider assurance (source "claim").
+ *  - absent → verified ONLY when a trusted issuer is configured AND exactly equals the
+ *    cryptographically validated token issuer (source "provider_assurance"); otherwise not
+ *    verified (source "none").
+ *
+ * The decision is centralised here so every caller applies identical, issuer-scoped rules.
+ */
+export function resolveEmailVerification(
+  identity: FixiamIdentity,
+  validatedIssuer: string | null,
+): { verified: boolean; source: EmailVerificationSource } {
+  if (identity.emailVerified === true) return { verified: true, source: "claim" };
+  if (identity.emailVerified === false) return { verified: false, source: "claim" };
+  const assured = getOidcAssuredEmailIssuer();
+  if (assured && validatedIssuer && assured === validatedIssuer) {
+    return { verified: true, source: "provider_assurance" };
+  }
+  return { verified: false, source: "none" };
+}
 
 export type LinkResult =
   | { ok: true; userId: string; label: string; matchedOn: MatchedOn; linkedNow: boolean; relinked: boolean }
@@ -37,7 +64,9 @@ type UserRow = typeof users.$inferSelect;
  * Security invariants (both strategies):
  *  - The OIDC `sub` is never assumed to be an email; email matching uses the explicit
  *    `email` claim only.
- *  - An account is linked by email ONLY when `email_verified` is true.
+ *  - An account is linked by email ONLY when the email is verified, as decided by
+ *    resolveEmailVerification (a true claim, or provider assurance for the exact validated
+ *    issuer). An explicit `email_verified: false` always refuses.
  *  - Email comparison is case-insensitive, and email uniqueness among live SCIM users is
  *    enforced by a partial unique index, so an email resolves to at most one account.
  */
@@ -45,13 +74,18 @@ export async function linkIdentity(
   identity: FixiamIdentity,
   ip: string | null,
   strategy: OidcMatchStrategy,
+  validatedIssuer: string | null,
 ): Promise<LinkResult> {
+  // Single, issuer-scoped email-verification decision reused by every match path.
+  const emailVerification = resolveEmailVerification(identity, validatedIssuer);
+
   return getDb().transaction(async (tx) => {
     const live = and(eq(users.provisioningSource, "scim"), isNull(users.deletedAt));
     const pick = (cond: ReturnType<typeof sql>) => tx.select().from(users).where(and(live, cond)).for("update");
 
     let user: UserRow | undefined;
     let matchedOn: MatchedOn = "fixiam_sub";
+    let emailSource: EmailVerificationSource = "none";
     // True when the match itself is the authority for this identity (verified email), which
     // permits re-linking a changed subject (e.g. Fixiam migrating sub -> immutable id).
     let authoritativeMatch = false;
@@ -61,10 +95,11 @@ export async function linkIdentity(
 
     if (!user) {
       if (strategy === "email") {
-        const emailMatch = await matchByVerifiedEmail(pick, identity);
+        const emailMatch = await matchByVerifiedEmail(pick, identity, emailVerification);
         if (!emailMatch.ok) return emailMatch.result;
         user = emailMatch.user;
         matchedOn = "email";
+        emailSource = emailVerification.source;
         authoritativeMatch = true;
       } else {
         // subject strategy
@@ -73,23 +108,25 @@ export async function linkIdentity(
         if (!user) {
           // userName candidates: preferred_username always; the email only when verified,
           // so an unverified email cannot link through the userName path either.
-          const candidates = [identity.preferredUsername, identity.emailVerified === true ? identity.email : undefined].filter(Boolean) as string[];
+          const candidates = [identity.preferredUsername, emailVerification.verified ? identity.email : undefined].filter(Boolean) as string[];
           for (const name of candidates) {
             const rows = await pick(sql`lower(${users.userName}) = lower(${name})`);
             if (rows.length === 1) {
               user = rows[0];
               matchedOn = "userName";
+              if (name === identity.email) emailSource = emailVerification.source;
               break;
             }
           }
         }
         if (!user && identity.email) {
-          const emailMatch = await matchByVerifiedEmail(pick, identity);
+          const emailMatch = await matchByVerifiedEmail(pick, identity, emailVerification);
           // In subject strategy email is a fallback: a present-but-unverified email simply
           // doesn't match here (we don't hard-deny, other factors may still apply — but none remain).
           if (emailMatch.ok) {
             user = emailMatch.user;
             matchedOn = "email";
+            emailSource = emailVerification.source;
             authoritativeMatch = true;
           } else if (emailMatch.result.reason !== "not_provisioned") {
             return emailMatch.result; // email_unverified / ambiguous_email are hard failures
@@ -128,7 +165,9 @@ export async function linkIdentity(
           details: {
             matchedOn,
             strategy,
+            // Non-PII: the claim value (bool/null) and how verification was established.
             emailVerified: identity.emailVerified ?? null,
+            emailVerificationSource: emailSource,
             note: relinked
               ? "Fixiam subject changed for a verified email; subject re-linked to the existing account"
               : "Fixiam subject linked to the SCIM-provisioned account on first sign-in",
@@ -145,14 +184,18 @@ type EmailMatch =
   | { ok: true; user: UserRow }
   | { ok: false; result: Extract<LinkResult, { ok: false }> };
 
-/** Match a live SCIM user by the verified email claim. Never assumes `sub` is an email. */
+/**
+ * Match a live SCIM user by the verified email claim. Never assumes `sub` is an email.
+ * Verification is decided by `resolveEmailVerification` (true claim, or provider assurance
+ * for the validated issuer); an explicit `email_verified: false` fails here.
+ */
 async function matchByVerifiedEmail(
   pick: (cond: ReturnType<typeof sql>) => Promise<UserRow[]>,
   identity: FixiamIdentity,
+  verification: { verified: boolean; source: EmailVerificationSource },
 ): Promise<EmailMatch> {
   if (!identity.email) return { ok: false, result: { ok: false, reason: "not_provisioned" } };
-  // Requirement: never link based on an unverified email.
-  if (identity.emailVerified !== true) return { ok: false, result: { ok: false, reason: "email_unverified" } };
+  if (!verification.verified) return { ok: false, result: { ok: false, reason: "email_unverified" } };
   const rows = await pick(sql`lower(${users.email}) = lower(${identity.email})`);
   if (rows.length === 1) return { ok: true, user: rows[0] };
   if (rows.length > 1) return { ok: false, result: { ok: false, reason: "ambiguous_email" } };

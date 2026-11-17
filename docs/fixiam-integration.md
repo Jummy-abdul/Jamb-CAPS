@@ -68,11 +68,39 @@ CAPS links a Fixiam sign-in to the SCIM-provisioned account using one of two str
 2. **Email uniqueness** — a partial unique index (`users_email_scim_live_uq`) and a SCIM-layer `409 uniqueness`
    check ensure an email resolves to **exactly one** live provisioned account. Apply
    [`supabase/sql/04_email_uniqueness.sql`](../supabase/sql/04_email_uniqueness.sql) to an already-provisioned database.
-3. **Verified email only** — CAPS links by email **only** when the `email_verified` claim is `true`. An unverified
-   or absent `email_verified` is denied with `?reason=email_unverified` and audited (`authentication.login_denied`).
-   Fixiam must therefore release `email` and `email_verified: true` (scope `email`).
+3. **Verified email required** — CAPS links by email only when the email is verified. The decision
+   (`resolveEmailVerification`) is:
+
+   | `email_verified` (token or userinfo) | Trusted issuer configured & equals validated `iss` | Result | Audit source |
+   |---|---|---|---|
+   | `true` | — | linked | `claim` |
+   | `false` | yes/no | **denied** (`?reason=email_unverified`) | `claim` |
+   | absent | **yes** | linked | `provider_assurance` |
+   | absent | no | **denied** (`?reason=email_unverified`) | `none` |
+
 4. **No assumption that `sub` is an email** — matching uses the explicit `email` claim; the opaque `sub` is stored
    as `fixiam_sub` only as a stable key for repeat logins.
+
+#### Trusted verified-email issuer (`CAPS_OIDC_ASSUME_EMAIL_VERIFIED_ISSUER`)
+
+Fixiam's OIDC discovery does **not** advertise `email_verified`, but **Fixiam Engineering has confirmed that
+Fixiam's email claims always represent verified email addresses.** To accept that out-of-band guarantee safely
+for this integration, set `CAPS_OIDC_ASSUME_EMAIL_VERIFIED_ISSUER` to the **exact Fixiam issuer URL**. CAPS then
+treats an *absent* `email_verified` as verified **only** for a token whose cryptographically validated `iss`
+equals that value.
+
+Safety properties:
+- **Issuer-scoped, never global** — compared to the validated `iss`; a token from any other issuer is unaffected.
+- **Explicit `false` always rejects** — the assurance covers only the *absent* case, never an IdP's negative assertion.
+- **Default stays strict** — unset ⇒ absent `email_verified` is denied, exactly as without the feature.
+- **Backed by other controls** — the email must already match an active, SCIM-provisioned CAPS account (provisioning
+  gate), email uniqueness holds, and each link is audited with `emailVerificationSource` (`claim` / `provider_assurance`).
+- **PII minimisation** — authentication-denial audit events record the email **domain only** and a hashed subject,
+  never the raw email address.
+
+**Remove this configuration when** Fixiam begins emitting `email_verified` (CAPS then uses the claim, source
+`claim`), **or** once CAPS migrates to matching on Fixiam's immutable user ID (email verification is no longer the
+primary linking key). Removing the env var instantly restores strict claim-based proof.
 
 **Migration to an immutable ID:** because the `sub` is stored on first sign-in, switching Fixiam to an immutable
 subject later is transparent — CAPS re-links the new subject to the same account by verified email

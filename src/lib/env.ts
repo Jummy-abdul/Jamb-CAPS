@@ -82,6 +82,25 @@ export function getOidcMatchStrategy(): OidcMatchStrategy {
   return v === "email" ? "email" : "subject";
 }
 
+/**
+ * Issuer explicitly designated as a trusted verified-email provider.
+ *
+ * TEMPORARY, provider-specific trust: when Fixiam omits `email_verified`, CAPS may treat the
+ * email claim as verified ONLY for a token whose validated `iss` exactly equals this value.
+ * This relies on Fixiam Engineering's guarantee that its email claims represent verified
+ * addresses. It is unset by default (feature off), is compared to the cryptographically
+ * validated token issuer (never applied globally), and never overrides an explicit
+ * `email_verified: false`. Remove it once Fixiam emits `email_verified`, or once CAPS has
+ * migrated to matching on Fixiam's immutable user ID.
+ *
+ * OIDC issuer identifiers are compared exactly (RFC 8414 / OpenID Connect Core §2); only
+ * surrounding whitespace is trimmed.
+ */
+export function getOidcAssuredEmailIssuer(): string | undefined {
+  const v = process.env.CAPS_OIDC_ASSUME_EMAIL_VERIFIED_ISSUER?.trim();
+  return v ? v : undefined;
+}
+
 export function getOidcEnv(): OidcEnv {
   return parse("Fixiam OIDC", oidcSchema, {
     FIXIAM_ISSUER_URL: process.env.FIXIAM_ISSUER_URL,

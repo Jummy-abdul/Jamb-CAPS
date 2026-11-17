@@ -38,10 +38,15 @@ const provider = new Provider(ISSUER, {
     const local = login.includes("@") ? login.split("@")[0] : login;
     const email = login.includes("@") ? login : `${login}@demo.example`;
     const given = local.charAt(0).toUpperCase() + local.slice(1);
+    // Controls the email_verified claim for testing the provider-assurance path:
+    //   "true" (default) | "false" | "omit"
+    const evMode = process.env.DEV_IDP_EMAIL_VERIFIED ?? "true";
     return {
       accountId: String(id),
       async claims() {
-        return { sub: String(id), email, email_verified: true, preferred_username: email, given_name: given, family_name: "Tester", name: `${given} Tester` };
+        const base = { sub: String(id), email, preferred_username: email, given_name: given, family_name: "Tester", name: `${given} Tester` };
+        if (evMode === "omit") return base;
+        return { ...base, email_verified: evMode === "true" };
       },
     };
   },

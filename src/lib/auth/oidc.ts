@@ -152,7 +152,8 @@ export async function completeLogin(callbackUrl: URL, txn: { state: string; nonc
       userinfo = undefined; // optional enrichment only
     }
   }
-  return { identity: mapClaims(claims, userinfo), idToken: tokens.id_token };
+  // meta.issuer is the issuer validated by jwtVerify above (token iss === discovery issuer).
+  return { identity: mapClaims(claims, userinfo), idToken: tokens.id_token, issuer: meta.issuer };
 }
 
 export async function buildLogoutUrl(idToken: string | null) {
