@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Lock, AlertTriangle, Info, Mail, KeyRound } from "lucide-react";
 import { getPrincipalResult } from "@/lib/authz/principal";
-import { getConfigStatus } from "@/lib/env";
 import { sp } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -28,7 +27,6 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   // Preserved: already-authenticated users skip the login screen.
   const current = await getPrincipalResult().catch(() => null);
   if (current?.ok && !reason) redirect("/dashboard");
-  const oidcReady = getConfigStatus().oidc.configured;
   const msg = reason ? MESSAGES[reason] : undefined;
 
   return (
@@ -128,20 +126,13 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             </div>
 
             {/* Fixiam SSO — the real authentication path */}
-            {oidcReady ? (
-              <a
-                href="/api/auth/login"
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-green-700 bg-white text-sm font-semibold text-green-800 shadow-sm transition-colors hover:bg-green-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300"
-              >
-                <Lock className="size-4" aria-hidden />
-                Login with Fixiam
-              </a>
-            ) : (
-              <div className="rounded-lg border border-dashed border-line bg-slate-50 p-4 text-sm text-muted">
-                <p className="font-medium text-ink">Fixiam SSO not configured</p>
-                <p className="mt-1">Set the FIXIAM_* environment variables to enable sign-in.</p>
-              </div>
-            )}
+            <a
+              href="/api/auth/login"
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-green-700 bg-white text-sm font-semibold text-green-800 shadow-sm transition-colors hover:bg-green-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-300"
+            >
+              <Lock className="size-4" aria-hidden />
+              Login with Fixiam
+            </a>
           </div>
         </div>
       </main>
