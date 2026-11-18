@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "users_email_scim_live_uq" ON "users" USING btree (lower("email")) WHERE "users"."deleted_at" is null and "users"."email" is not null and "users"."provisioning_source" = 'scim';
