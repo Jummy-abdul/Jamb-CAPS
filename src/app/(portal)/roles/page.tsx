@@ -36,25 +36,25 @@ export default async function RolesPage() {
 
       <Card className="mt-6">
         <CardHeader
-          title="Group-to-role mappings"
-          description="Configurable. A user receives a role while they are a member of a matching group in Fixiam."
+          title="Role mappings"
+          description="Configurable. A user receives a CAPS role from a Fixiam-provisioned application role, or while they are a member of a matching Fixiam group."
           action={canManage ? <AddMappingButton roles={roles.map((r) => ({ key: r.key, name: r.name }))} /> : undefined}
         />
         <div className="flex items-start gap-2 border-b border-line bg-slate-50 px-5 py-3 text-xs text-muted">
           <Info className="mt-0.5 size-3.5 shrink-0" />
-          SCIM 2.0 has no standard attribute for application-specific roles, so CAPS maps Fixiam groups to roles. Groups are created dynamically by Fixiam; the mapping matches them by name or externalId. Changing a mapping re-evaluates every affected user immediately and is audited. Administrators cannot create or change a mapping that would alter their own access.
+          Fixiam owns application-role assignments and group membership and provisions them over SCIM; CAPS owns only this mapping of an external application role (or group) onto an internal role. Application roles arrive on the SCIM User (the <code>roles</code> attribute and the Fixiam authorization extension). Changing a mapping re-evaluates every affected user immediately and is audited. Administrators cannot create or change a mapping that would alter their own access.
         </div>
         {mappings.length === 0 ? (
-          <EmptyState title="No mappings configured" description="Without mappings, group membership grants no CAPS permissions." />
+          <EmptyState title="No mappings configured" description="Without mappings, provisioned application roles and group membership grant no CAPS permissions." />
         ) : (
           <Table>
-            <THead><tr><Th>Fixiam group match</Th><Th>CAPS role</Th><Th className="text-right">Matching groups</Th><Th>Status</Th><Th>Created</Th>{canManage && <Th />}</tr></THead>
+            <THead><tr><Th>Fixiam source</Th><Th>CAPS role</Th><Th className="text-right">Matches</Th><Th>Status</Th><Th>Created</Th>{canManage && <Th />}</tr></THead>
             <TBody>
               {mappings.map(({ m, roleName, matchedGroups }) => (
                 <Tr key={m.id}>
                   <Td>
                     <p className="font-medium">{m.sourceValue}</p>
-                    <p className="text-xs text-muted">{m.sourceType === "group_display_name" ? "Group display name" : "Group externalId"}</p>
+                    <p className="text-xs text-muted">{m.sourceType === "application_role" ? "Fixiam application role" : m.sourceType === "group_display_name" ? "Group display name" : "Group externalId"}</p>
                   </Td>
                   <Td><Badge tone="navy">{roleName}</Badge></Td>
                   <Td className="text-right tabular-nums">{matchedGroups}</Td>

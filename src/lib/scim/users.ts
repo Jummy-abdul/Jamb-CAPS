@@ -9,7 +9,55 @@ import { ScimError } from "./errors";
 import { parseFilter } from "./filter";
 import { filterToSql, stringCompare, type AttrMap } from "./filter-sql";
 import { applyPatch } from "./patch";
-import { SCHEMA_ENTERPRISE_USER, SCHEMA_LIST, SCHEMA_USER, USER_MULTI_VALUED } from "./constants";
+import { SCHEMA_ENTERPRISE_USER, SCHEMA_FIXIAM_AUTHZ, SCHEMA_LIST, SCHEMA_USER, USER_MULTI_VALUED } from "./constants";
+
+/** A Fixiam application-role assignment extracted from the SCIM representation. */
+export type ProvisionedAppRole = { value: string; display?: string; source: "roles" | "ext" | "both" };
+
+/**
+ * Extract Fixiam application-role assignments from a SCIM User representation as a normalised,
+ * de-duplicated union of two provisioning formats (requirement: process both, dedupe):
+ *   - the standard `roles` multi-valued attribute (entries typed "appRole", or untyped);
+ *   - the Fixiam authorization extension's `appRoles` string array.
+ * Values are de-duplicated case-insensitively; `source` records which format(s) carried each.
+ * This is authorization input only — it never asserts verification or identity.
+ */
+export function parseProvisionedAppRoles(body: Json): ProvisionedAppRole[] {
+  const byKey = new Map<string, ProvisionedAppRole>();
+  const roles = getCI(body, "roles");
+  if (Array.isArray(roles)) {
+    for (const r of roles) {
+      if (!isObj(r)) continue;
+      const type = typeof r.type === "string" ? r.type.trim().toLowerCase() : undefined;
+      if (type && type !== "approle") continue; // only application roles; ignore other role types
+      const value = typeof r.value === "string" ? r.value.trim() : "";
+      if (!value) continue;
+      const display = typeof r.display === "string" && r.display.trim() ? r.display.trim() : undefined;
+      const k = value.toLowerCase();
+      if (!byKey.has(k)) byKey.set(k, { value, display, source: "roles" });
+    }
+  }
+  const ext = getCI(body, SCHEMA_FIXIAM_AUTHZ);
+  if (isObj(ext)) {
+    const appRoles = getCI(ext, "appRoles");
+    if (Array.isArray(appRoles)) {
+      for (const v of appRoles) {
+        const value = typeof v === "string" ? v.trim() : "";
+        if (!value) continue;
+        const k = value.toLowerCase();
+        const existing = byKey.get(k);
+        if (existing) existing.source = "both";
+        else byKey.set(k, { value, source: "ext" });
+      }
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.value.localeCompare(b.value));
+}
+
+/** Stable, order-independent signature of an app-role set, for change detection. */
+function appRolesSignature(roles: ProvisionedAppRole[] | null | undefined): string {
+  return (roles ?? []).map((r) => r.value.toLowerCase()).sort().join("\u0000");
+}
 
 type UserRow = typeof users.$inferSelect;
 type Json = Record<string, unknown>;
@@ -44,6 +92,7 @@ interface UserInput {
   department: string | null;
   active: boolean;
   extra: Json;
+  provisionedAppRoles: ProvisionedAppRole[];
 }
 
 const MODELED = new Set(["id", "meta", "schemas", "username", "externalid", "name", "displayname", "emails", "active", "title", "groups", "password", "department", SCHEMA_ENTERPRISE_USER.toLowerCase()]);
@@ -91,6 +140,7 @@ export function parseUserInput(body: unknown): UserInput {
     department,
     active: bool(getCI(body, "active"), "active", true),
     extra,
+    provisionedAppRoles: parseProvisionedAppRoles(body),
   };
 }
 
@@ -230,15 +280,20 @@ export async function createUser(body: unknown, baseUrl: string, ip: string | nu
       .values({
         userName: input.userName, externalId: input.externalId, givenName: input.givenName, familyName: input.familyName,
         displayName: input.displayName, email: input.email, title: input.title, department: input.department,
-        active: input.active, provisioningSource: "scim", scimAttributes: input.extra, lastSyncedAt: now,
+        active: input.active, provisioningSource: "scim", scimAttributes: input.extra,
+        provisionedAppRoles: input.provisionedAppRoles, lastSyncedAt: now,
         deactivatedAt: input.active ? null : now,
       })
       .returning();
     await audit({
       category: "provisioning", action: "user.provisioned", ...SCIM_ACTOR, ipAddress: ip,
       targetType: "user", targetId: row.id, targetLabel: label(row),
-      details: { userName: row.userName, externalId: row.externalId, email: row.email, department: row.department, title: row.title, active: row.active },
+      details: { userName: row.userName, externalId: row.externalId, email: row.email, department: row.department, title: row.title, active: row.active, appRoles: input.provisionedAppRoles.map((r) => r.value) },
     }, tx);
+    // Derive entitlements from any application roles provisioned on creation.
+    if (row.active && input.provisionedAppRoles.length) {
+      await recomputeUserEntitlements(tx, row.id, SCIM_ACTOR, "application roles provisioned by Fixiam");
+    }
     return toScimUser(row, [], baseUrl);
   });
 }
@@ -251,6 +306,7 @@ async function persistReplacement(tx: Tx, current: UserRow, input: UserInput, ba
   const changes: Record<string, { from: unknown; to: unknown }> = {};
   for (const f of TRACKED) if ((current[f] ?? null) !== (input[f] ?? null)) changes[f] = { from: current[f], to: input[f] };
   const extraChanged = JSON.stringify(current.scimAttributes ?? {}) !== JSON.stringify(input.extra);
+  const appRolesChanged = appRolesSignature(current.provisionedAppRoles) !== appRolesSignature(input.provisionedAppRoles);
   const now = new Date();
 
   const [row] = await tx
@@ -258,8 +314,8 @@ async function persistReplacement(tx: Tx, current: UserRow, input: UserInput, ba
     .set({
       userName: input.userName, externalId: input.externalId, givenName: input.givenName, familyName: input.familyName,
       displayName: input.displayName, email: input.email, title: input.title, department: input.department,
-      active: input.active, scimAttributes: input.extra, lastSyncedAt: now,
-      ...(Object.keys(changes).length || extraChanged ? { updatedAt: now, version: sql`${users.version} + 1` } : {}),
+      active: input.active, scimAttributes: input.extra, provisionedAppRoles: input.provisionedAppRoles, lastSyncedAt: now,
+      ...(Object.keys(changes).length || extraChanged || appRolesChanged ? { updatedAt: now, version: sql`${users.version} + 1` } : {}),
       ...("active" in changes ? { deactivatedAt: input.active ? null : now } : {}),
     })
     .where(eq(users.id, current.id))
@@ -277,6 +333,15 @@ async function persistReplacement(tx: Tx, current: UserRow, input: UserInput, ba
     } else {
       await audit({ category: "provisioning", action: "user.reactivated", ...SCIM_ACTOR, ipAddress: ip, ...target, details: { via } }, tx);
     }
+  }
+  // Reconcile entitlements when provisioned application roles changed (add/replace/remove) or
+  // the active state changed. Deactivation yields an empty desired set → all roles revoked
+  // (in addition to session revocation above); reactivation restores them.
+  if (appRolesChanged || "active" in changes) {
+    const reason = "active" in changes
+      ? (input.active ? "user reactivated by Fixiam" : "user deactivated by Fixiam")
+      : "application roles changed by Fixiam";
+    await recomputeUserEntitlements(tx, row.id, SCIM_ACTOR, reason);
   }
   const g = await groupsFor(tx, [row.id]);
   return toScimUser(row, g.get(row.id) ?? [], baseUrl);

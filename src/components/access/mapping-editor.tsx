@@ -30,16 +30,17 @@ export function AddMappingButton({ roles }: { roles: { key: string; name: string
   return (
     <>
       <Button size="sm" onClick={() => setOpen(true)}><Plus className="size-4" />Add mapping</Button>
-      <Dialog open={open} onClose={() => setOpen(false)} title="Add group-to-role mapping" description="Members of a matching Fixiam group will receive the selected CAPS role. Group membership itself is still managed in Fixiam.">
+      <Dialog open={open} onClose={() => setOpen(false)} title="Add role mapping" description="Map a Fixiam-provisioned application role, or a Fixiam group, onto a CAPS role. Fixiam owns the assignment; CAPS owns only this mapping.">
         <div className="space-y-3 text-sm">
-          <label className="block"><span className="font-medium">Match groups by</span>
+          <label className="block"><span className="font-medium">Match by</span>
             <select className={input} value={form.sourceType} onChange={(e) => setForm({ ...form, sourceType: e.target.value })}>
+              <option value="application_role">Fixiam application role (SCIM-provisioned)</option>
               <option value="group_display_name">Group display name (case-insensitive)</option>
               <option value="group_external_id">Group externalId</option>
             </select>
           </label>
-          <label className="block"><span className="font-medium">{form.sourceType === "group_display_name" ? "Group display name" : "Group externalId"}</span>
-            <input className={input} value={form.sourceValue} onChange={(e) => setForm({ ...form, sourceValue: e.target.value })} placeholder={form.sourceType === "group_display_name" ? "e.g. CAPS Admission Officers – Lagos Zone" : "Fixiam group identifier"} />
+          <label className="block"><span className="font-medium">{form.sourceType === "application_role" ? "Fixiam application role value" : form.sourceType === "group_display_name" ? "Group display name" : "Group externalId"}</span>
+            <input className={input} value={form.sourceValue} onChange={(e) => setForm({ ...form, sourceValue: e.target.value })} placeholder={form.sourceType === "application_role" ? "e.g. admission_manager" : form.sourceType === "group_display_name" ? "e.g. CAPS Admission Officers – Lagos Zone" : "Fixiam group identifier"} />
           </label>
           <label className="block"><span className="font-medium">CAPS application role</span>
             <select className={input} value={form.roleKey} onChange={(e) => setForm({ ...form, roleKey: e.target.value })}>

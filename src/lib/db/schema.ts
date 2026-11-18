@@ -52,6 +52,9 @@ export const auditOutcome = pgEnum("audit_outcome", ["success", "denied", "failu
 export const roleMappingSource = pgEnum("role_mapping_source", [
   "group_display_name",
   "group_external_id",
+  // Fixiam application-role assignment, provisioned via the SCIM User `roles` attribute
+  // and/or the Fixiam authorization extension `appRoles`. Matches on the external role value.
+  "application_role",
 ]);
 
 const timestamps = {
@@ -85,6 +88,14 @@ export const users = pgTable(
     sampleRoleLabel: text("sample_role_label"),
     /** Full SCIM attributes as last received (multi-valued emails, roles, extensions...). */
     scimAttributes: jsonb("scim_attributes").$type<Record<string, unknown>>(),
+    /**
+     * Fixiam application-role assignments, provisioned over SCIM and modeled as first-class
+     * authorization input. Normalised, de-duplicated union of the standard User `roles`
+     * attribute (entries of type "appRole") and the Fixiam authorization extension `appRoles`.
+     * Each entry: { value, display?, source: "roles" | "ext" | "both" }. Fixiam owns these;
+     * CAPS maps `value` → internal role via role_mappings(source_type='application_role').
+     */
+    provisionedAppRoles: jsonb("provisioned_app_roles").$type<{ value: string; display?: string; source: "roles" | "ext" | "both" }[]>(),
     /** SCIM meta.version counter. */
     version: integer("version").notNull().default(1),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
@@ -195,6 +206,10 @@ export const userEntitlements = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     roleKey: text("role_key").notNull().references(() => applicationRoles.key, { onDelete: "cascade" }),
+    /** What conferred this grant: a Fixiam group, or a Fixiam application-role assignment. */
+    sourceKind: text("source_kind").notNull().default("group"),
+    /** Stable reference within the source: the group id (group kind) or the external role value (application_role kind). */
+    sourceRef: text("source_ref"),
     sourceGroupId: uuid("source_group_id").references(() => groups.id, { onDelete: "set null" }),
     sourceGroupName: text("source_group_name"),
     grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
@@ -202,8 +217,10 @@ export const userEntitlements = pgTable(
     revokeReason: text("revoke_reason"),
   },
   (t) => [
+    // One active grant per (user, role, source). A role conferred by both a group and an
+    // application role yields two distinct source rows; both must be removed to lose the role.
     uniqueIndex("user_entitlements_active_uq")
-      .on(t.userId, t.roleKey, t.sourceGroupId)
+      .on(t.userId, t.roleKey, t.sourceKind, sql`coalesce(${t.sourceRef}, '')`)
       .where(sql`${t.revokedAt} is null`),
     index("user_entitlements_user_idx").on(t.userId),
   ],

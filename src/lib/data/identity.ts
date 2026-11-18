@@ -135,9 +135,15 @@ export async function getRolesAndMappings() {
     .select({
       m: roleMappings,
       roleName: applicationRoles.name,
-      matchedGroups: sql<number>`(select count(*)::int from groups g where g.deleted_at is null and (
-        ("role_mappings"."source_type" = 'group_display_name' and lower(g.display_name) = lower("role_mappings"."source_value"))
-        or ("role_mappings"."source_type" = 'group_external_id' and g.external_id = "role_mappings"."source_value")))`,
+      matchedGroups: sql<number>`(case
+        when "role_mappings"."source_type" = 'application_role' then (
+          select count(*)::int from users u where u.deleted_at is null and u.active and exists (
+            select 1 from jsonb_array_elements(coalesce(u.provisioned_app_roles, '[]'::jsonb)) e
+            where lower(e->>'value') = lower("role_mappings"."source_value")))
+        else (select count(*)::int from groups g where g.deleted_at is null and (
+          ("role_mappings"."source_type" = 'group_display_name' and lower(g.display_name) = lower("role_mappings"."source_value"))
+          or ("role_mappings"."source_type" = 'group_external_id' and g.external_id = "role_mappings"."source_value")))
+      end)`,
     })
     .from(roleMappings)
     .innerJoin(applicationRoles, eq(applicationRoles.key, roleMappings.roleKey))

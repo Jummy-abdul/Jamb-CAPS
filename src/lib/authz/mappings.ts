@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { applicationRoles, groupMemberships, groups, roleMappings } from "@/lib/db/schema";
+import { applicationRoles, groupMemberships, groups, roleMappings, users } from "@/lib/db/schema";
 import { audit } from "@/lib/audit/log";
 import { recomputeAllEntitlements } from "./entitlements";
 import type { Principal } from "./principal";
@@ -12,10 +12,21 @@ export class MappingError extends Error {
   }
 }
 
-type SourceType = "group_display_name" | "group_external_id";
+type SourceType = "group_display_name" | "group_external_id" | "application_role";
 
-/** Is the acting administrator a member of any group this mapping would match? */
+/**
+ * Would this mapping change the acting administrator's own access? True when the actor is a
+ * member of a group the mapping matches, or (for application_role mappings) has that external
+ * application role provisioned to them. Used to block self-escalation.
+ */
 async function affectsActor(tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0], actorId: string, sourceType: SourceType, sourceValue: string) {
+  if (sourceType === "application_role") {
+    const [row] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, actorId), sql`exists (select 1 from jsonb_array_elements(coalesce(${users.provisionedAppRoles}, '[]'::jsonb)) e where lower(e->>'value') = lower(${sourceValue}))`));
+    return !!row;
+  }
   const match =
     sourceType === "group_display_name"
       ? sql`lower(${groups.displayName}) = lower(${sourceValue})`

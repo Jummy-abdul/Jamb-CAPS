@@ -19,16 +19,16 @@ export default async function DashboardPage() {
   if (!result.ok) redirect(`/login?reason=${result.reason}`);
   const p = result.principal;
 
-  // Authenticated through Fixiam, but no CAPS role has been assigned (no mapped group membership).
+  // Authenticated through Fixiam, but no CAPS role has been assigned (no mapped application role or group membership).
   if (!can(p, "dashboard.view")) {
     return (
       <Card className="mx-auto mt-8 max-w-2xl">
         <EmptyState
           icon={ShieldAlert}
           title={`Welcome, ${p.user.displayName}`}
-          description="You are signed in through Fixiam and your CAPS account is active, but no CAPS application role is currently assigned to you. Ask your Fixiam administrator to add you to the appropriate CAPS group."
+          description="You are signed in through Fixiam and your CAPS account is active, but no CAPS application role is currently assigned to you. Ask your Fixiam administrator to assign you an application role for eFacility."
         >
-          <p className="text-xs text-muted">Access in CAPS is granted exclusively through Fixiam group assignments.</p>
+          <p className="text-xs text-muted">Access in CAPS is granted exclusively through Fixiam-provisioned application role assignments (or mapped group membership).</p>
         </EmptyState>
       </Card>
     );

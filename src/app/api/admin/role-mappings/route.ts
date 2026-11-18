@@ -3,7 +3,7 @@ import { requireApi, clientIp } from "@/lib/authz/principal";
 import { createMapping, MappingError } from "@/lib/authz/mappings";
 
 const Body = z.object({
-  sourceType: z.enum(["group_display_name", "group_external_id"]),
+  sourceType: z.enum(["group_display_name", "group_external_id", "application_role"]),
   sourceValue: z.string().trim().min(1).max(256),
   roleKey: z.string().trim().min(1).max(64),
   description: z.string().trim().max(256).optional(),

@@ -6,26 +6,43 @@ import { audit, type AuditEntry } from "@/lib/audit/log";
 
 type Actor = Pick<AuditEntry, "actorType" | "actorLabel" | "actorUserId">;
 
+type SourceKind = "group" | "application_role";
+
 interface DesiredGrant {
   roleKey: string;
   roleName: string;
-  groupId: string;
-  groupName: string;
+  /** What conferred the grant. */
+  sourceKind: SourceKind;
+  /** Stable reference within the source: group id ('group') or lowercased external role value ('application_role'). */
+  sourceRef: string;
+  /** Group columns (kept for group grants only, for display + FK). */
+  sourceGroupId: string | null;
+  sourceGroupName: string | null;
+  /** The external Fixiam application-role value (application_role grants only), for audit. */
+  externalRole?: string;
 }
 
 /**
- * Compute the roles a user should hold right now: for every live group the user
- * belongs to, apply every enabled mapping that matches that group.
- * Fixiam owns group membership; CAPS owns only the mapping configuration.
+ * Compute the roles a user should hold right now — the UNION of two Fixiam-owned,
+ * SCIM-provisioned sources, each mapped to internal roles by CAPS-owned configuration:
+ *   1. Group membership → role_mappings(group_display_name | group_external_id).
+ *   2. Provisioned application roles (users.provisioned_app_roles) → role_mappings(application_role).
+ * CAPS owns only the mapping; Fixiam owns the assignments. An unmapped source grants nothing.
  */
 async function desiredGrants(tx: Tx, userId: string): Promise<DesiredGrant[]> {
-  const rows = await tx
-    .select({
-      roleKey: roleMappings.roleKey,
-      roleName: applicationRoles.name,
-      groupId: groups.id,
-      groupName: groups.displayName,
-    })
+  // A non-live or inactive user is entitled to nothing. This makes reconciliation revoke all
+  // access on deactivation (active=false) and deprovision (soft delete), from either source.
+  const [u] = await tx
+    .select({ active: users.active, deletedAt: users.deletedAt, roles: users.provisionedAppRoles })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!u || !u.active || u.deletedAt) return [];
+
+  const grants: DesiredGrant[] = [];
+
+  // 1. Group-derived.
+  const groupRows = await tx
+    .select({ roleKey: roleMappings.roleKey, roleName: applicationRoles.name, groupId: groups.id, groupName: groups.displayName })
     .from(groupMemberships)
     .innerJoin(groups, and(eq(groups.id, groupMemberships.groupId), isNull(groups.deletedAt)))
     .innerJoin(
@@ -40,10 +57,33 @@ async function desiredGrants(tx: Tx, userId: string): Promise<DesiredGrant[]> {
     )
     .innerJoin(applicationRoles, eq(applicationRoles.key, roleMappings.roleKey))
     .where(eq(groupMemberships.userId, userId));
+  for (const r of groupRows) {
+    grants.push({ roleKey: r.roleKey, roleName: r.roleName, sourceKind: "group", sourceRef: r.groupId, sourceGroupId: r.groupId, sourceGroupName: r.groupName });
+  }
 
+  // 2. Application-role-derived.
+  const values = [...new Set((u.roles ?? []).map((r) => r.value.trim().toLowerCase()).filter(Boolean))];
+  if (values.length) {
+    const roleRows = await tx
+      .select({ roleKey: roleMappings.roleKey, roleName: applicationRoles.name, sourceValue: roleMappings.sourceValue })
+      .from(roleMappings)
+      .innerJoin(applicationRoles, eq(applicationRoles.key, roleMappings.roleKey))
+      .where(
+        and(
+          eq(roleMappings.enabled, true),
+          eq(roleMappings.sourceType, "application_role"),
+          sql`lower(${roleMappings.sourceValue}) in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`,
+        ),
+      );
+    for (const r of roleRows) {
+      grants.push({ roleKey: r.roleKey, roleName: r.roleName, sourceKind: "application_role", sourceRef: r.sourceValue.trim().toLowerCase(), sourceGroupId: null, sourceGroupName: null, externalRole: r.sourceValue });
+    }
+  }
+
+  // De-duplicate by (roleKey, sourceKind, sourceRef).
   const seen = new Set<string>();
-  return rows.filter((r) => {
-    const k = `${r.roleKey}|${r.groupId}`;
+  return grants.filter((g) => {
+    const k = `${g.roleKey}|${g.sourceKind}|${g.sourceRef}`;
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
@@ -68,12 +108,12 @@ export async function recomputeUserEntitlements(tx: Tx, userId: string, actor: A
     .from(userEntitlements)
     .where(and(eq(userEntitlements.userId, userId), isNull(userEntitlements.revokedAt)));
 
-  const key = (roleKey: string, groupId: string | null) => `${roleKey}|${groupId ?? ""}`;
-  const desiredKeys = new Set(desired.map((d) => key(d.roleKey, d.groupId)));
-  const activeKeys = new Set(active.map((a) => key(a.roleKey, a.sourceGroupId)));
+  const key = (roleKey: string, sourceKind: string, sourceRef: string | null) => `${roleKey}|${sourceKind}|${sourceRef ?? ""}`;
+  const desiredKeys = new Set(desired.map((d) => key(d.roleKey, d.sourceKind, d.sourceRef)));
+  const activeKeys = new Set(active.map((a) => key(a.roleKey, a.sourceKind, a.sourceRef)));
 
-  const toRevoke = active.filter((a) => !desiredKeys.has(key(a.roleKey, a.sourceGroupId)));
-  const toGrant = desired.filter((d) => !activeKeys.has(key(d.roleKey, d.groupId)));
+  const toRevoke = active.filter((a) => !desiredKeys.has(key(a.roleKey, a.sourceKind, a.sourceRef)));
+  const toGrant = desired.filter((d) => !activeKeys.has(key(d.roleKey, d.sourceKind, d.sourceRef)));
 
   if (toRevoke.length) {
     await tx
@@ -83,7 +123,7 @@ export async function recomputeUserEntitlements(tx: Tx, userId: string, actor: A
   }
   if (toGrant.length) {
     await tx.insert(userEntitlements).values(
-      toGrant.map((g) => ({ userId, roleKey: g.roleKey, sourceGroupId: g.groupId, sourceGroupName: g.groupName })),
+      toGrant.map((g) => ({ userId, roleKey: g.roleKey, sourceKind: g.sourceKind, sourceRef: g.sourceRef, sourceGroupId: g.sourceGroupId, sourceGroupName: g.sourceGroupName })),
     );
   }
 
@@ -101,7 +141,14 @@ export async function recomputeUserEntitlements(tx: Tx, userId: string, actor: A
         targetType: "user",
         targetId: userId,
         targetLabel: label,
-        details: { role: g.roleKey, roleName: g.roleName, viaGroup: g.groupName, reason, newEffectiveRole: !before.has(g.roleKey) },
+        details: {
+          role: g.roleKey,
+          roleName: g.roleName,
+          source: g.sourceKind, // 'group' | 'application_role'
+          via: g.sourceKind === "group" ? g.sourceGroupName : g.externalRole,
+          reason,
+          newEffectiveRole: !before.has(g.roleKey),
+        },
       },
       tx,
     );
@@ -115,7 +162,13 @@ export async function recomputeUserEntitlements(tx: Tx, userId: string, actor: A
         targetType: "user",
         targetId: userId,
         targetLabel: label,
-        details: { role: r.roleKey, viaGroup: r.sourceGroupName, reason, roleStillHeldViaOtherGroup: after.has(r.roleKey) },
+        details: {
+          role: r.roleKey,
+          source: r.sourceKind, // 'group' | 'application_role'
+          via: r.sourceKind === "group" ? r.sourceGroupName : r.sourceRef,
+          reason,
+          roleStillHeldViaOtherSource: after.has(r.roleKey),
+        },
       },
       tx,
     );
